@@ -5,9 +5,9 @@ packages, `index` listing them and `index.sig` signing it ([formats.md](formats.
 
 ## Once: the signing key
 
-    tools/pkg-repo.py keygen ~/aux-pkg.key
+    tools/pkg-repo.py keygen ~/aux-3-pkg.key
 
-writes the secret key to `~/aux-pkg.key` (readable only by you) and prints the public
+writes the secret key to `~/aux-3-pkg.key` (readable only by you) and prints the public
 key. Keep the secret one private and backed up: anyone who has it can sign package lists
 pkg will trust, and without it you can't sign new ones. Never commit it. `pkg-repo.py`
 also takes a `.env` file holding the key as `PKG_KEY=ed25519-secret ...` wherever it

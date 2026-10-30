@@ -4,16 +4,18 @@ The missing package manager for A/UX 3.1, Apple's Unix for 68k Macs. It can inst
 package files or via http. A/UX can't use HTTPS, so pkg checks every download against 
 a signed package list instead. Installed packages can be upgraded, checked and removed cleanly.
 
-**Status:** early, and the default server has no packages yet. A/UX 3.0.1 should work
+**Status:** early. The default server has one package so far, gzip, from
+[aux-3-ports](https://github.com/jflitton/aux-3-ports). A/UX 3.0.1 should work
 too (its system calls and structures are the same as far as pkg uses them) but hasn't
 been tried.
 
 ## Getting pkg
 
-Build it (see [docs/development.md](docs/development.md)) and copy `build/aux/pkg` to the
-Mac as `/usr/local/bin/pkg`, mode 755: with `ftp` in binary mode, or onto a disk image
-with aux-3-patches' `tools/ufsput.py`. aux-3-patches will get a `--pkg` option that does
-this when it makes a disk.
+The easiest way is [aux-3-patches](https://github.com/jflitton/aux-3-patches)' `--pkg`
+option, which puts pkg on an A/UX disk image as it makes it, recorded as an installed
+package so that `pkg upgrade` upgrades pkg too. Or build it (see
+[docs/development.md](docs/development.md)) and copy `build/aux/pkg` to the Mac as
+`/usr/local/bin/pkg`, mode 755, with `ftp` in binary mode.
 
 ## Using it
 

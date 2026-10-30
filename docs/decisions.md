@@ -14,12 +14,13 @@ work that exists elsewhere is a compiler, not a libc: gcc 2.5.7 to 2.7.2 binarie
 1990s jagubox archive (mirrored on discmaster from ftp.mayn.de), and uyjulian's unfinished
 modern cross-toolchain (github.com/uyjulian/aux_crosscompile_toolchain). Those, and a
 shared runtime library, will be delivered as packages, so the delivery mechanism comes
-first.
+first. Ports, and the toolchain that builds them, are in aux-3-ports (2026-10-30, "Ports
+go in aux-3-ports").
 
 ### Its own repository, copied into aux-3-patches as a binary
 
-`aux-pkg` is a separate repository, MIT licensed. aux-3-patches will get a `--pkg` option
-that installs a built `pkg` from `patches/pkg/bin/`, copied from a tagged `aux-pkg`
+`aux-3-pkg` is a separate repository, MIT licensed. aux-3-patches will get a `--pkg` option
+that installs a built `pkg` from `patches/pkg/bin/`, copied from a tagged `aux-3-pkg`
 release by a script that records the version. Not a git submodule: aux-3-patches tells
 users to use GitHub's "Download ZIP", which leaves submodules out. `pkg` is built only
 from our own source, so it meets aux-3-patches' rule for `bin/`. The patch also registers
@@ -164,11 +165,10 @@ a mirror and another source.
 ### Keys belong to a server
 
 The built-in keys and `key` lines are trusted for main only, and the keys on a repo line
-for that server only. Before, any key pkg trusted could sign any server's list, so over
-plain HTTP whoever held a key added for one server could pass a list off as another's;
-that's why Debian replaced `apt-key`'s shared keyring with a key per source. `unsigned`
-is per server too, and `--unsigned` is for main only: accepting one hobbyist's server
-unsigned mustn't leave main unchecked.
+for that server only. Otherwise, over plain HTTP, whoever held a key added for one server
+could pass a list off as another's; that's why Debian replaced `apt-key`'s shared
+keyring with a key per source. `unsigned` is per server too, and `--unsigned` is for main
+only: accepting one hobbyist's server unsigned mustn't leave main unchecked.
 
 ### The first server that has a package has it
 
@@ -186,11 +186,10 @@ An installed package's record names its server, and it's upgraded from there onl
 FreeBSD's pkg does by default. A repo adding a package main has, or main adding one a
 repo has, doesn't move anyone's installed copy; `pkg install SERVER/NAME` does. If pkg
 has no list from a package's server any more, it says so and doesn't upgrade it from
-elsewhere. A package installed from a file, or before records named servers, follows the
-first server that has it.
+elsewhere. A package installed from a file follows the first server that has it.
 
 A record's `installed`, `from` and `server` lines are pkg's own, so a package's `+PKG`
-may no longer have them: one could otherwise name its server for itself.
+may not have them: one could otherwise name its server for itself.
 
 ### A server that can't be had keeps its last list
 
@@ -214,23 +213,21 @@ what someone would guess; then that it looks like package managers they know.
 ### A mistake on the command line does nothing
 
 Every option and argument is checked before pkg changes anything, and a mistake gets a
-line saying what's wrong (exit 2), not the whole usage. Before, `-u` was ignored by
-every command but `update`, and `pkg -s NAME update`, given a server's name for its
-address, updated the other servers before failing.
+line saying what's wrong (exit 2), not the whole usage.
 
 ### Options go anywhere
 
-Before or after the command, with `--` ending them, as apt and Homebrew allow. Before,
-options after the command were package names: `pkg remove games -R /mnt` removed games
-from `/`, then said `-R` and `/mnt` weren't installed. No package's name starts with
-`-`, so this is never ambiguous.
+Before or after the command, with `--` ending them, as apt and Homebrew allow. Otherwise
+an option after the command would be taken for a package: `pkg remove games -r /mnt`
+would remove games from `/`, then say `-r` and `/mnt` aren't installed. No package's name
+starts with `-`, so this is never ambiguous.
 
 ### Files and packages are told apart by how they're written
 
 A package file ends in `.pkg` or is a path with a `/` in it; `SERVER/NAME` is a package,
-even if a file has that name (`./SERVER/NAME` is the file). Before, it depended on what
-was in the current directory. Package names may no longer end in `.pkg`, so that a
-mistyped file name is reported as a missing file, not a missing package.
+even if a file has that name (`./SERVER/NAME` is the file), whatever is in the current
+directory. Package names may not end in `.pkg`, so that a mistyped file name is reported
+as a missing file, not a missing package.
 
 ### pkg takes back every name it shows
 
@@ -240,19 +237,30 @@ it came from that server.
 
 ### `owner` takes whole paths
 
-From `/`, without `.` or `..`: a relative path was taken from `/`, and `..` can't be
-resolved without knowing which directories are symbolic links, so pkg gave wrong
-answers. A directory a package made is that package's.
+From `/`, without `.` or `..`: pkg doesn't resolve a relative path, and `..` can't be
+resolved without knowing which directories are symbolic links, so either could give a
+wrong answer. A directory a package made is that package's.
 
-### Renamed options
+### Option names
 
-`-R` is `-r`, as for FreeBSD's pkg and pacman; `-R` reads as "recursive", which
-FreeBSD's `pkg delete -R` is. `-u` is `--unsigned`, the word `/etc/pkg.conf` uses: the one
-option that turns checking off is spelled out (as apt's `--allow-unauthenticated` and
-dnf's `--nogpgcheck` are), and `-u` read like `update` or `upgrade`. `-v` did nothing and
-is gone. `-s` and `--unsigned` go with `update` and are shown there.
+`-r` for another root, as for FreeBSD's pkg and pacman; `-R` reads as "recursive", which
+FreeBSD's `pkg delete -R` is. `--unsigned`, the word `/etc/pkg.conf` uses: the one option
+that turns checking off is spelled out (as apt's `--allow-unauthenticated` and dnf's
+`--nogpgcheck` are), and `-u` would read like `update` or `upgrade`. `-s` and
+`--unsigned` go with `update` and are shown there.
 
 ### Exit status
 
-0 done; 1 couldn't, or found nothing (`search` now too, as `owner` and `info` already
-did), or `verify` found changes; 2 a mistake on the command line.
+0 done; 1 couldn't, or found nothing (`search`, `owner`, `info`), or `verify` found
+changes; 2 a mistake on the command line.
+
+## 2026-10-30: ports
+
+### Ports go in aux-3-ports
+
+Programs ported to A/UX, and the toolchain that cross-compiles them, are a separate
+repository, aux-3-ports, which uses `tools/pkg-build.py` from a checkout beside it. pkg
+stays buildable from this repository alone, freestanding on `rt/`; ports change more often
+than pkg and may come from other people; and ports carry patches to GPL programs, which
+this MIT repository shouldn't. Homebrew keeps its formulae out of `brew`, and FreeBSD its
+ports tree out of `pkg`, for the same reasons.
