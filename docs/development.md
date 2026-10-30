@@ -4,7 +4,7 @@
 
 | Path | What |
 |---|---|
-| `src/` | pkg: `main.c` (commands), `install.c` (install, remove, verify), `repo.c` (servers, the signed list, downloads), `db.c` (records of what's installed), `http.c`, `tar.c`, `gunzip.c`, `ed25519.c`, `sha.c`, `util.c`; `defaults.h`, the default server and keys |
+| `src/` | pkg: `main.c` (commands), `install.c` (install, remove, verify), `repo.c` (servers, the signed lists, downloads), `db.c` (records of what's installed), `http.c`, `tar.c`, `gunzip.c`, `ed25519.c`, `sha.c`, `util.c`; `defaults.h`, the default server and keys |
 | `rt/` | The runtime pkg runs on under A/UX instead of Apple's libc: `crt0.S`, `sys.S` (syscalls), `libc.c`, `aux.h`, and `aux.ld`, the executable's layout |
 | `tools/` | `pkg-build.py`, `pkg-repo.py` and `ed25519.py` for package makers and publishers; `publish.sh` (puts packages on a server kept in S3); `elf2aout.py` (ELF to A/UX COFF) and `aux-run.py` (runs a script in A/UX in QEMU) for the build and tests |
 | `test/` | `unit.c` (with vectors from `gen-unit.py`), `host-test.py` (end to end on this machine), `rt-test.c` (the runtime, in A/UX), `aux-test.sh` (all of it in A/UX, with `httpd.c` and `make-repo.py`) |

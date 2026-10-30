@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """End-to-end tests of pkg on this machine. Builds packages and a signed server with
-tools/, serves it over HTTP, and runs pkg against a scratch root (-R).
+tools/, serves it over HTTP, and runs pkg against a scratch root (-r).
 
   host-test.py PKG
 
 The server answers under a few prefixes, to test the ways a server or network can
 behave: /plain/ (as it is), /chunked/ (chunked replies), /redirect/ (a 302 to /plain/),
 /https/ (a redirect to HTTPS), /tampered/ (index changed after signing), /unsigned/ (no
-index.sig), /damaged/ (packages changed after indexing).
+index.sig), /damaged/ (packages changed after indexing). /second/ is another server, with
+its own key.
 """
 import gzip, http.server, io, os, re, shutil, subprocess, sys, tarfile, tempfile
 import threading
@@ -18,7 +19,10 @@ PKG = os.path.abspath(sys.argv[1])
 WORK = tempfile.mkdtemp(prefix='pkg-test.')
 ROOT = os.path.join(WORK, 'root')
 REPO = os.path.join(WORK, 'repo')
+REPO2 = os.path.join(WORK, 'repo2')
 KEY = os.path.join(WORK, 'key')
+KEY2 = os.path.join(WORK, 'key2')
+CONF = os.path.join(ROOT, 'etc', 'pkg.conf')
 passed = failed = 0
 
 
@@ -33,9 +37,12 @@ def check(ok, what, detail=''):
                                                   .splitlines())))
 
 
-def pkg(*args):
-    p = subprocess.run([PKG, '-R', ROOT] + list(args), capture_output=True, text=True)
-    return p.returncode, p.stdout + p.stderr
+def pkg(*args, root=True, cwd=None, split=False):
+    """pkg's exit status and output; split gives stdout and stderr apart"""
+    p = subprocess.run([PKG] + (['-r', ROOT] if root else []) + list(args), cwd=cwd,
+                       capture_output=True, text=True)
+    return (p.returncode, p.stdout, p.stderr) if split else (p.returncode,
+                                                             p.stdout + p.stderr)
 
 
 def tool(*args):
@@ -60,13 +67,13 @@ def make_tree(top, meta, files):
         os.chmod(full, mode)
 
 
-def build(name, version, files, summary='A test package', extra=()):
-    top = os.path.join(WORK, 'src', '%s-%s' % (name, version))
+def build(name, version, files, summary='A test package', extra=(), repo=REPO):
+    top = os.path.join(WORK, 'src', os.path.basename(repo), '%s-%s' % (name, version))
     make_tree(top, [('format', 1), ('name', name), ('version', version),
                     ('summary', summary)] + list(extra), files)
-    os.makedirs(os.path.join(REPO, 'packages'), exist_ok=True)
+    os.makedirs(os.path.join(repo, 'packages'), exist_ok=True)
     return tool(os.path.join(TOOLS, 'pkg-build.py'), top,
-                os.path.join(REPO, 'packages')).strip()
+                os.path.join(repo, 'packages')).strip()
 
 
 def raw_package(path, members):
@@ -85,8 +92,13 @@ def raw_package(path, members):
         f.write(gzip.compress(buf.getvalue()))
 
 
-def index():
-    tool(os.path.join(TOOLS, 'pkg-repo.py'), 'index', REPO, KEY)
+def index(repo=REPO, key=KEY):
+    tool(os.path.join(TOOLS, 'pkg-repo.py'), 'index', repo, key)
+
+
+def conf(*lines):
+    with open(CONF, 'w') as f:
+        f.write(''.join(l + '\n' for l in lines))
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -120,7 +132,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(302, headers=[('Location', '/plain/' + rel)])
         if mode == 'https':
             return self.send(301, headers=[('Location', 'https://example.com/' + rel)])
-        full = os.path.join(REPO, rel)
+        full = os.path.join(REPO2 if mode == 'second' else REPO, rel)
         if '..' in rel or not os.path.isfile(full):
             return self.send(404, b'not here')
         if mode == 'unsigned' and rel == 'index.sig':
@@ -153,8 +165,7 @@ def main():
     url = base + '/plain/'
 
     pub = tool(os.path.join(TOOLS, 'pkg-repo.py'), 'keygen', KEY).strip()
-    with open(os.path.join(ROOT, 'etc', 'pkg.conf'), 'w') as f:
-        f.write('# test\nkey %s\n' % pub)
+    conf('# test', 'key %s' % pub)
 
     hello10 = build('hello', '1.0', {
         'usr/local/bin/hello': (b'#!/bin/sh\necho hello\n', 0o755),
@@ -177,6 +188,7 @@ def main():
                                                ('usr/local/lib/pkg/installed/x', b'x')])
     raw_package(os.path.join(bad, 'twice.pkg'), [('+PKG', meta), ('usr/y', b'1'),
                                                  ('usr/y', b'2')])
+    raw_package(os.path.join(bad, 'pkgkey.pkg'), [('+PKG', meta + b'server main\n')])
     with open(os.path.join(bad, 'text.pkg'), 'w') as f:
         f.write('not a package\n')
 
@@ -193,8 +205,8 @@ def main():
           'refused list leaves the old one', out)
     code, out = pkg('-s', base + '/unsigned/', 'update')
     check(code and "isn't signed" in out, 'unsigned list refused', out)
-    code, out = pkg('-u', '-s', base + '/unsigned/', 'update')
-    check(code == 0 and 'unsigned' in out, 'unsigned list with -u', out)
+    code, out = pkg('--unsigned', '-s', base + '/unsigned/', 'update')
+    check(code == 0 and 'unsigned' in out, 'unsigned list with --unsigned', out)
     code, out = pkg('list', '-a')
     check("wasn't signed" in out, 'unsigned list marked', out)
     pkg('-s', url, 'update')
@@ -204,9 +216,9 @@ def main():
     code, out = pkg('search', 'GREET')
     check(code == 0 and 'hello' in out and 'macapp' not in out, 'search', out)
     code, out = pkg('search', 'zzz')
-    check('No package matches' in out, 'search without a match', out)
+    check(code == 1 and 'No package matches' in out, 'search without a match', out)
     code, out = pkg('info', 'hello')
-    check(code == 0 and 'Prints a greeting' in out and 'on the server' in out, 'info',
+    check(code == 0 and 'Prints a greeting' in out and 'on main: 1.0, ' in out, 'info',
           out)
     code, out = pkg('info', hello10)
     check(code == 0 and 'url http://example.com/hello' in out, 'info of a file', out)
@@ -307,6 +319,7 @@ def main():
                          ('future', 'newer pkg'),
                          ('own', "pkg's own directory"),
                          ('twice', 'in it twice'),
+                         ('pkgkey', "pkg's own"),
                          ('text', 'not a gzip file')):
         before = files_under(ROOT)
         code, out = pkg('install', os.path.join(bad, name + '.pkg'))
@@ -337,7 +350,7 @@ def main():
     code, out = pkg('-s', 'http://no-such-host.invalid/', 'update')
     check(code == 1 and ('no host' in out or "can't look up" in out), 'no such host', out)
     code, out = pkg('-s', 'https://example.com/', 'update')
-    check(code == 1 and "can't use HTTPS" in out, 'https:// refused', out)
+    check(code == 2 and "can't use HTTPS" in out, 'https:// refused', out)
 
     # the lock
     lock = os.path.join(ROOT, 'usr/local/lib/pkg/lock')
@@ -349,6 +362,202 @@ def main():
         f.write('999999\n')
     code, out = pkg('remove', 'hello')
     check(code == 0 and not os.path.exists(lock), 'stale lock', out)
+
+    # several servers
+    pub2 = tool(os.path.join(TOOLS, 'pkg-repo.py'), 'keygen', KEY2).strip()
+    build('hello', '2.0', {'usr/local/bin/hello': (b'#!/bin/sh\necho hello from extra\n',
+                                                   0o755)}, repo=REPO2)
+    build('only', '1.0', {'usr/local/bin/only': b'only\n'}, repo=REPO2)
+    index(REPO2, KEY2)
+    second = base + '/second/'
+    conf('key %s' % pub, 'repo extra %s %s' % (second, pub2))
+    code, out = pkg('-s', url, 'update')
+    check(code == 0 and re.search(r'^main: \d+ packages at %s$' % url, out, re.M) and
+          'extra: 2 packages at %s\n' % second in out, 'update gets every server', out)
+    code, out = pkg('list', '-a')
+    check(re.search(r'^hello\s+1\.1\s', out, re.M) and
+          re.search(r'^extra/hello\s+2\.0\s', out, re.M) and
+          re.search(r'^extra/only\s+1\.0\s', out, re.M), "list -a shows each server's",
+          out)
+    code, out = pkg('install', 'hello')
+    check(code == 0 and 'Installed hello 1.1' in out,
+          'the first server with a package has it, not the highest version', out)
+    code, out = pkg('list', '-a')
+    check(re.search(r'^hello\s+1\.1\s.*\(installed\)$', out, re.M) and
+          re.search(r'^extra/hello\s+2\.0\s+A test package$', out, re.M),
+          'list -a marks the one installed', out)
+    code, out = pkg('upgrade')
+    check(code == 0 and 'up to date' in out, "upgrade doesn't take another server's", out)
+    code, out = pkg('install', 'only')
+    check(code == 0 and 'Installed only 1.0' in out, 'install from the server with it', out)
+    code, out = pkg('install', 'extra/hello')
+    check(code == 0 and 'Upgraded hello from 1.1 to 2.0' in out and
+          'from extra' in open(hello).read(), 'install server/package', out)
+    code, out = pkg('info', 'hello')
+    check('from extra, ' + second in out and 'on main: 1.1, ' in out and
+          'on extra: 2.0, ' in out, 'info names the servers', out)
+    code, out = pkg('info', 'extra/only')
+    check(code == 0 and 'on extra: 1.0' in out, 'info server/package', out)
+    build('hello', '3.0', {'usr/local/bin/hello': (b'#!/bin/sh\necho hello 3\n', 0o755)})
+    index()
+    pkg('-s', url, 'update')
+    code, out = pkg('upgrade')
+    check(code == 0 and 'up to date' in out,
+          'upgrade stays with the server a package came from', out)
+    code, out = pkg('install', 'main/hello')
+    check(code == 0 and 'Upgraded hello from 2.0 to 3.0' in out, '...until told', out)
+    code, out = pkg('install', 'extra/hello')
+    check(code == 0 and 'Downgraded hello from 3.0 to 2.0' in out, 'downgrade', out)
+    pkg('remove', 'hello')
+    pkg('install', hello10)
+    code, out = pkg('upgrade')
+    check(code == 0 and 'Upgraded hello from 1.0 to 3.0' in out,
+          'one installed from a file follows the first server that has it', out)
+    pkg('remove', 'hello')
+    code, out = pkg('install', 'nowhere/hello')
+    check(code == 1 and 'no server called nowhere' in out, 'server/package, no server',
+          out)
+    code, out = pkg('install', 'extra/macapp')
+    check(code == 1 and 'no package called macapp at extra' in out,
+          "server/package that isn't there", out)
+
+    # whose keys sign what
+    code, out = pkg('-s', second, 'update')
+    check(code == 1 and "isn't signed by a key pkg trusts" in out and
+          'kept the package list pkg had from main' in out and 'extra: 2 packages' in out,
+          "main doesn't trust another server's key", out)
+    code, out = pkg('list', '-a')
+    check(re.search(r'^hello\s+3\.0\s', out, re.M), '...and keeps its old list', out)
+    conf('key %s' % pub, 'repo extra %s %s' % (url, pub2))
+    code, out = pkg('-s', url, 'update')
+    check(code == 1 and "isn't signed by a key pkg trusts for extra" in out,
+          "a repo doesn't trust main's key", out)
+    conf('repo extra %s %s' % (second, pub2))
+    code, out = pkg('-s', url, 'update')
+    check(code == 1 and "isn't signed by a key pkg trusts.\n" in out,
+          "a repo's key doesn't sign main's list", out)
+    conf('key %s' % pub, 'repo loose %s' % (base + '/unsigned/'))
+    code, out = pkg('--unsigned', '-s', url, 'update')
+    check(code == 1 and "trusts for loose" in out, "--unsigned is for main's list only",
+          out)
+    conf('key %s' % pub, 'repo loose %s unsigned' % (base + '/unsigned/'))
+    code, out = pkg('-s', url, 'update')
+    check(code == 0 and re.search(r'^loose: .*\(unsigned: not checked\)$', out, re.M),
+          'a repo accepted unsigned', out)
+    code, out = pkg('list', '-a')
+    check('list from loose wasn\'t signed' in out and 'main wasn\'t' not in out,
+          '...is marked', out)
+
+    # servers coming and going
+    conf('key %s' % pub, 'repo extra %s %s' % (second, pub2))
+    pkg('-s', url, 'update')
+    pkg('install', 'extra/hello')
+    lists = os.path.join(ROOT, 'usr/local/lib/pkg/lists')
+    check(sorted(os.listdir(lists)) == ['extra', 'main'], 'a list per server',
+          os.listdir(lists))
+    conf('key %s' % pub, 'repo extra http://localhost:1/ %s' % pub2)
+    code, out = pkg('-s', url, 'update')
+    check(code == 1 and "can't connect" in out and
+          'kept the package list pkg had from extra' in out, 'a server down', out)
+    code, out = pkg('info', 'extra/hello')
+    check(code == 0 and 'on extra: 2.0, ' + second in out, '...keeps its list and address',
+          out)
+    conf('key %s' % pub)
+    code, out = pkg('-s', url, 'update')
+    check(code == 0 and 'extra' not in out and os.listdir(lists) == ['main'],
+          'a server taken out of pkg.conf is dropped', out)
+    code, out = pkg('upgrade')
+    check('hello came from extra, which pkg has no package list from' in out and
+          'up to date' not in out, "...and what came from it isn't upgraded from elsewhere",
+          out)
+    code, out = pkg('upgrade', 'hello')
+    check(code == 1 and 'came from extra' in out, '...even when named', out)
+    pkg('remove', 'hello', 'only')
+
+    # pkg.conf mistakes
+    conf('key %s' % pub, 'repo main %s %s' % (second, pub2),
+         'repo extra %s %s' % (second, pub2), 'repo extra %s %s' % (url, pub),
+         'repo bad %s 1234' % second)
+    code, out = pkg('-s', url, 'update')
+    check('"repo main": that name isn\'t allowed' in out and
+          'two repo lines for extra' in out and '"1234" on the repo line for bad' in out
+          and 'extra: 2 packages' in out, 'repo lines that are no good', out)
+    conf('key %s' % pub)
+    pkg('-s', url, 'update')
+
+    # the command line
+    conf('key %s' % pub, 'repo extra %s %s' % (second, pub2))
+    pkg('update', '-s', url)
+    code, out = pkg('install', 'extra/hello')
+    check(code == 0 and 'Installed hello 2.0' in out, 'options after the command', out)
+    code, out = pkg('list', '-r', ROOT, root=False)
+    check(code == 0 and re.search(r'^extra/hello\s+2\.0\s', out, re.M),
+          "-r after the command, and list shows a package's server", out)
+    code, out = pkg('remove', 'hello', '-r', '/no/such/dir')
+    check(code == 2 and "isn't a directory" in out and os.path.exists(hello),
+          'a mistake anywhere does nothing', out)
+    code, out = pkg('-s', 'extra', 'update')
+    check(code == 2 and "http:// address, not extra" in out and 'main:' not in out,
+          '-s takes an address, checked first', out)
+    for args, expect in ((['instal', 'hello'], "instal isn't a command"),
+                         (['-x', 'list'], "-x isn't an option"),
+                         (['search'], 'usage: pkg search word\n'),
+                         (['owner', 'a', 'b'], 'usage: pkg owner /path\n'),
+                         (['-s', url, 'list'], '-s goes with update'),
+                         (['--unsigned', 'install', 'hello'], '--unsigned goes with update'),
+                         (['search', '-a', 'x'], '-a goes with list'),
+                         (['update', '-s'], '-s needs a URL'),
+                         (['owner', 'usr/local/bin/hello'], 'starting with /'),
+                         (['owner', '/usr/local/bin/../bin/hello'], 'without . or ..')):
+        code, out = pkg(*args)
+        check(code == 2 and expect in out and len(out.splitlines()) == 1,
+              'mistake: pkg %s' % ' '.join(args), out)
+    code, out, err = pkg(split=True)
+    check(code == 2 and out == '' and err.startswith('usage: pkg'), 'pkg alone', err)
+    for args in (['help'], ['-h'], ['--help'], ['install', '--help']):
+        code, out, err = pkg(*args, split=True)
+        check(code == 0 and out.startswith('usage: pkg') and 'owner /path' in out and
+              err == '', 'pkg %s' % ' '.join(args), out + err)
+    code, out = pkg('remove', '--', '-x')
+    check(code == 1 and "-x isn't installed" in out, '-- ends the options', out)
+
+    # files and packages, by how they're written
+    os.makedirs(os.path.join(WORK, 'extra'))
+    shutil.copy(hello10, os.path.join(WORK, 'extra', 'hello'))
+    code, out = pkg('info', 'extra/hello', cwd=WORK)
+    check(code == 0 and 'on extra: 2.0' in out, 'SERVER/NAME is a package, even when a '
+          'file has that name', out)
+    code, out = pkg('info', './extra/hello', cwd=WORK)
+    check(code == 0 and 'url http://example.com/hello' in out, '...and ./ makes it a file',
+          out)
+    code, out = pkg('install', 'nothere.pkg', cwd=WORK)
+    check(code == 1 and "can't open nothere.pkg" in out, 'NAME.pkg is a file', out)
+
+    # SERVER/NAME for what's installed
+    for cmd in ('files', 'verify', 'upgrade', 'info'):
+        code, out = pkg(cmd, 'extra/hello')
+        check(code == 0, '%s SERVER/NAME' % cmd, out)
+    code, out = pkg('remove', 'main/hello')
+    check(code == 1 and 'hello came from extra, not main' in out and os.path.exists(hello),
+          "SERVER/NAME has to be where it came from", out)
+    code, out = pkg('remove', 'extra/hello')
+    check(code == 0 and 'Removed hello 2.0' in out, 'remove SERVER/NAME', out)
+    pkg('install', hello10)
+    code, out = pkg('files', 'main/hello')
+    check(code == 1 and "isn't recorded as coming from main" in out,
+          '...and one from a file has none', out)
+
+    # owner
+    code, out = pkg('owner', '/usr//local/bin/hello/')
+    check(code == 0 and out == 'hello\n', 'owner, // and a trailing /', out)
+    code, out = pkg('owner', '/usr/local/share/hello')
+    check(code == 0 and out == 'hello\n', 'owner of a directory a package made', out)
+    code, out = pkg('owner', '/usr/local/bin')
+    check(code == 1 and 'No package installed /usr/local/bin.' in out,
+          "owner of one it didn't", out)
+    pkg('remove', 'hello')
+    conf('key %s' % pub)
+    pkg('update', '-s', url)
 
     check(not temporaries(), 'no temporaries left', temporaries())
     code, out = pkg('version')

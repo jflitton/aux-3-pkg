@@ -37,9 +37,12 @@ def read_meta(path):
     for key in ('format', 'name', 'version', 'summary'):
         if key not in meta:
             die('%s has no %s line' % (path, key))
+    for key in ('installed', 'from', 'server'):
+        if key in meta:
+            die('%s: %s is pkg\'s own key, for its records' % (path, key))
     if meta['format'] != '1':
         die('%s: this pkg-build makes format 1' % path)
-    if not NAME.match(meta['name']):
+    if not NAME.match(meta['name']) or meta['name'].endswith('.pkg'):
         die('%s: name %r isn\'t allowed (docs/formats.md)' % (path, meta['name']))
     if not VERSION.match(meta['version']):
         die('%s: version %r isn\'t allowed (docs/formats.md)' % (path, meta['version']))

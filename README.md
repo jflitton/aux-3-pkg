@@ -19,27 +19,49 @@ this when it makes a disk.
 
 In CommandShell, as root:
 
-    pkg update                    get the list of packages from the server
+    pkg update                    get the lists of packages from the servers
     pkg list -a                   see what's there
-    pkg install hello             install a package from the server
+    pkg install hello             install a package from a server
     pkg install hello-1.0.pkg     ...or from a package file
     pkg upgrade                   install newer versions of what you have
     pkg remove hello              remove it again
 
 and `pkg list` (what's installed), `pkg search WORD`, `pkg info PACKAGE`, `pkg files
-PACKAGE`, `pkg verify` (have installed files changed?) and `pkg owner PATH` (which package
-installed it). `pkg` alone lists them all.
+PACKAGE`, `pkg verify` (have installed files changed?) and `pkg owner /PATH` (which package
+installed it). `pkg help` lists them all. Options can go before or after the command.
 
-To use another server, `pkg -s http://example.com/aux/ update` once: installs and upgrades
-then come from the server the list came from. To use it every time, put it in
+A package file is told from a package's name by how it's written, never by what's on
+disk: it ends in `.pkg`, or it's a path with a `/` in it (`./hello` for one in the current
+directory).
+
+pkg exits 0 if it did what was asked, 1 if it couldn't, found nothing (`search`, `info`,
+`owner`) or found changes (`verify`), and 2 if the command line is wrong, having done
+nothing.
+
+## Other servers
+
+pkg's own server is called `main`. To add another beside it, give it a name in
 `/etc/pkg.conf`, with the key its lists are signed with (the server's owner will tell you
 it):
 
-    server http://example.com/aux/
-    key PUBLIC-KEY
+    repo jeff http://example.com/aux/ PUBLIC-KEY
 
-`-u` (or a line `unsigned` in `/etc/pkg.conf`) accepts a list that isn't signed by a key
-pkg trusts; then nothing guards against a download being changed on the way.
+`pkg update` then gets every server's list, and `pkg list -a` shows that server's
+packages as `jeff/NAME`. A name is looked for on main first, then on the other servers in
+the order of their lines, and the first that has it is the one, whatever version the
+others have: `pkg install jeff/hello` gets jeff's anyway. An installed package is only
+upgraded from the server it came from; installing it from another moves it there.
+`pkg list` shows where each came from the same way, and every command takes a package
+by the name it shows.
+
+To use a different server instead of main, such as a mirror of it, put `server
+http://example.com/aux/` in `/etc/pkg.conf`, with a line `key PUBLIC-KEY` unless it's a
+mirror; `pkg update -s http://example.com/aux/` does that until the next update.
+
+A key is trusted only for the server it's given for. `unsigned` on a repo line (or a line
+`unsigned`, or `pkg update --unsigned`, for main) accepts that server's list if it isn't
+signed by a key pkg trusts for it; then nothing guards against a download being changed
+on the way.
 
 ## What pkg won't do
 
@@ -70,7 +92,7 @@ and run `tools/pkg-build.py DIR`. To run a server of your own, see
   judge what's in a package.
 - The package list doesn't expire, so someone in the middle could keep showing you an old
   signed list, hiding newer versions.
-- HTTP only, one server at a time.
+- HTTP only.
 
 ## License
 

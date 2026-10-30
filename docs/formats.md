@@ -7,7 +7,8 @@ contain spaces (Mac files often do) but not tabs or newlines.
 
 ## Names, versions and paths
 
-- A package **name** is 1 to 64 of `a-z 0-9 + - . _`, starting with a letter or digit.
+- A package **name** is 1 to 64 of `a-z 0-9 + - . _`, starting with a letter or digit
+  and not ending in `.pkg` (which marks a package file on pkg's command line).
 - A **version** is 1 to 64 of `A-Z a-z 0-9 + - . _ ~`. Versions compare as Debian's do:
   runs of digits numerically, everything else character by character, and `~` sorts
   before anything, even the end (`1.0~beta1` < `1.0` < `1.0-1` < `1.0.1` < `1.10`).
@@ -26,7 +27,8 @@ value` lines (the key, one space, the rest of the line):
     summary Prints a greeting
 
 `format`, `name`, `version` and `summary` are required; other keys are kept and shown by
-`pkg info` (for example `url`, `license`, `maintainer`). Every other member is the
+`pkg info` (for example `url`, `license`, `maintainer`), except `installed`, `from` and
+`server`, which are the record's own (below) and make the package invalid. Every other member is the
 package's content: regular files, directories and symbolic links, with their modes,
 owners and modification times. Other member types, and other names starting with `+`,
 make the package invalid. A Mac file's resource fork and Finder information are its
@@ -69,20 +71,29 @@ digits). `pkg` accepts `index` if a line's key is one it trusts and its signatur
 |---|---|
 | `/etc/pkg.conf` | settings (below) |
 | `/usr/local/lib/pkg/installed/NAME` | what's installed (below) |
-| `/usr/local/lib/pkg/index`, `index.sig` | the last package list fetched |
-| `/usr/local/lib/pkg/index.url` | the server it came from, and whether it was signed |
+| `/usr/local/lib/pkg/servers` | the servers pkg has package lists from (below) |
+| `/usr/local/lib/pkg/lists/NAME` | the last package list from server NAME, as fetched |
 | `/usr/local/lib/pkg/download/` | downloads in progress |
 | `/usr/local/lib/pkg/lock` | the process ID of the `pkg` changing things, while it runs |
 
 `/etc/pkg.conf`, optional, `#` starting a comment:
 
-    server http://example.com/aux/     # instead of the built-in server
-    key 0123...cdef                    # also trust this signing key
-    unsigned                           # accept the server's package list unsigned
+    server http://example.com/aux/     # instead of the built-in server, main
+    key 0123...cdef                    # also trust this signing key for main
+    unsigned                           # accept main's package list unsigned
+    repo jeff http://example.org/aux/ 4567...89ab   # another server, and its key
+
+A `repo` line is a server's name (as a package's name, but not `main`), its URL, and then
+one or more keys trusted to sign its list, or `unsigned`, or both. Keys are trusted only
+for the server they're given for. Servers are searched in this order: main, then the
+repo lines as written.
+
+`servers`: a line per server, in that order: its name, URL, and `signed` or `unsigned`,
+separated by tabs. `pkg update` writes it after the lists.
 
 The record of an installed package: `key value` lines as in `+PKG` (plus `installed`, the
-time as seconds since 1970, and `from`, the URL or file it came from), then a line per
-thing it installed:
+time as seconds since 1970, `from`, the URL or file it came from, and `server`, the name
+of the server it came from, if it came from one), then a line per thing it installed:
 
     f	PATH	MODE	UID	GID	SIZE	SHA256	a regular file (MODE in octal)
     l	PATH	TARGET					a symbolic link

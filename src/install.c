@@ -19,7 +19,7 @@ struct pending {
 };
 
 struct inst {
-	const char *file, *expect;
+	const char *file, *server, *expect;
 	struct record new, old;
 	int have_old, got_meta, same;
 	char *meta;
@@ -101,7 +101,7 @@ in_the_way(struct inst *s, const char *path, const char *target)
 		return 0;
 	if (S_ISDIR(st.st_mode))
 		fail(s, "/%s is already there, as a directory", path);
-	else if ((who = owner(path))) {
+	else if ((who = owner(path, 0))) {
 		fail(s, "/%s is already there, from package %s", path, who);
 		free(who);
 	} else
@@ -251,7 +251,10 @@ end(void *arg)
 		}
 		if (readrecord(s->new.m.name, &s->old) == 0) {
 			s->have_old = 1;
-			if (!strcmp(s->old.m.version, s->new.m.version)) {
+			/* the same version from somewhere else replaces it */
+			if (!strcmp(s->old.m.version, s->new.m.version) &&
+			    (s->old.server && s->server ? !strcmp(s->old.server, s->server) :
+			    s->old.server == s->server)) {
 				s->same = 1;
 				return 1;
 			}
@@ -344,7 +347,7 @@ remove_leftovers(struct inst *s)
 }
 
 int
-install_file(const char *file, const char *from, const char *expect)
+install_file(const char *file, const char *from, const char *server, const char *expect)
 {
 	static struct inst st;
 	struct inst *s = &st;
@@ -354,6 +357,7 @@ install_file(const char *file, const char *from, const char *expect)
 
 	memset(s, 0, sizeof(*s));
 	s->file = file;
+	s->server = server;
 	s->expect = expect;
 	s->fd = -1;
 	s->root_user = getuid() == 0;
@@ -398,12 +402,18 @@ install_file(const char *file, const char *from, const char *expect)
 			remove_leftovers(s);
 		s->new.installed = time(NULL);
 		s->new.from = xstrdup(from);
+		s->new.server = server ? xstrdup(server) : NULL;
 		if (writerecord(&s->new) < 0)
 			ok = 0;
-		if (ok && s->have_old)
-			say("Upgraded %s from %s to %s\n", s->new.m.name, s->old.m.version,
-				s->new.m.version);
-		else if (ok)
+		if (ok && s->have_old) {
+			int c = vercmp(s->new.m.version, s->old.m.version);
+
+			if (c == 0)
+				say("Reinstalled %s %s\n", s->new.m.name, s->new.m.version);
+			else
+				say("%s %s from %s to %s\n", c > 0 ? "Upgraded" : "Downgraded",
+					s->new.m.name, s->old.m.version, s->new.m.version);
+		} else if (ok)
 			say("Installed %s %s\n", s->new.m.name, s->new.m.version);
 	}
 	for (i = 0; i < s->npend; i++) {

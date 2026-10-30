@@ -242,7 +242,7 @@ validname(const char *s)
 	for (p = s; *p; p++)
 		if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || strchr("+-._", *p)))
 			return 0;
-	return p - s <= 64;
+	return p - s <= 64 && !(p - s > 4 && !strcmp(p - 4, ".pkg"));	/* that's a file */
 }
 
 int

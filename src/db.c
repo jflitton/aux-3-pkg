@@ -28,6 +28,10 @@ metaline(struct meta *m, char *line, const char **err)
 	} else if (!strcmp(line, "summary")) {
 		free(m->summary);
 		m->summary = xstrdup(v);
+	} else if (!strcmp(line, "installed") || !strcmp(line, "from") ||
+	    !strcmp(line, "server")) {
+		*err = "it has an installed, from or server line, which are pkg's own";
+		return -1;
 	} else {
 		char *old = m->extra;
 
@@ -131,9 +135,13 @@ readrecord(const char *name, struct record *r)
 		if (!(line[0] && line[1] == '\t')) {
 			if (!strncmp(line, "installed ", 10))
 				r->installed = strtol(line + 10, NULL, 10);
-			else if (!strncmp(line, "from ", 5))
+			else if (!strncmp(line, "from ", 5)) {
+				free(r->from);
 				r->from = xstrdup(line + 5);
-			else if (metaline(&r->m, line, &err) < 0)
+			} else if (!strncmp(line, "server ", 7)) {
+				free(r->server);
+				r->server = xstrdup(line + 7);
+			} else if (metaline(&r->m, line, &err) < 0)
 				break;
 			continue;
 		}
@@ -195,6 +203,8 @@ writerecord(struct record *r)
 	if (r->m.extra)
 		ADD("%s", r->m.extra);
 	ADD("installed %ld\nfrom %s\n", r->installed, r->from ? r->from : "");
+	if (r->server)
+		ADD("server %s\n", r->server);
 	for (i = 0; i < r->n; i++) {
 		struct entry *e = &r->e[i];
 
@@ -230,6 +240,7 @@ freerecord(struct record *r)
 	}
 	free(r->e);
 	free(r->from);
+	free(r->server);
 	freemeta(&r->m);
 	memset(r, 0, sizeof(*r));
 }
@@ -275,7 +286,7 @@ listinstalled(char ***names)
 }
 
 char *
-owner(const char *path)
+owner(const char *path, int dirs)
 {
 	char **names, *found = NULL;
 	int i, n = listinstalled(&names);
@@ -286,7 +297,7 @@ owner(const char *path)
 		if (!found && readrecord(names[i], &r) == 0) {
 			struct entry *e = findentry(&r, path);
 
-			if (e && e->type != 'd')
+			if (e && (dirs || e->type != 'd'))
 				found = xstrdup(names[i]);
 			freerecord(&r);
 		}

@@ -169,7 +169,8 @@ test_paths(void)
 	for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
 		check(validpath(bad[i]) != NULL, bad[i], i);
 	check(validname("gcc") && validname("libg++") && validname("x11.fonts-1") &&
-		!validname("Gcc") && !validname("-x") && !validname(""), "names", 0);
+		!validname("Gcc") && !validname("-x") && !validname("") &&
+		!validname("x.pkg") && validname("x.pkgs"), "names", 0);
 }
 
 int

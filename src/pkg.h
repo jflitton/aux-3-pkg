@@ -5,15 +5,16 @@
 #include "sys.h"
 #include "sha.h"
 
-#define PKG_VERSION	"0.1"
+#define PKG_VERSION	"0.2"
 #define FORMAT		1	/* of packages, records and indexes this pkg reads */
 
 /* under root */
 #define PKGDIR		"/usr/local/lib/pkg"
 #define CONFFILE	"/etc/pkg.conf"
 
-extern const char *root;	/* -R: where to install, "" for / */
-extern int verbose;
+#define MAINSERVER	"main"	/* the built-in server's name, or pkg.conf's server line's */
+
+extern const char *root;	/* -r: where to install, "" for / */
 
 /* util.c */
 void warn(const char *fmt, ...);	/* "pkg: ...", newline added, to stderr */
@@ -57,7 +58,8 @@ struct entry {
 struct record {
 	struct meta m;
 	long installed;
-	char *from;
+	char *from;	/* the URL or file it came from */
+	char *server;	/* the server's name; NULL if it came from a file */
 	struct entry *e;
 	int n, cap;
 	char *buf;	/* the strings point into this */
@@ -68,31 +70,40 @@ void freerecord(struct record *r);
 void addentry(struct record *r, struct entry *e);
 struct entry *findentry(struct record *r, const char *path);
 int listinstalled(char ***names);	/* sorted; returns how many */
-char *owner(const char *path);	/* the installed package that has path, or NULL */
+char *owner(const char *path, int dirs);	/* the installed package that has path (or
+					   made it, if dirs and it's a directory), or NULL */
 
 /* install.c */
-int install_file(const char *file, const char *from, const char *expect_name);
+int install_file(const char *file, const char *from, const char *server,
+	const char *expect_name);
 int remove_package(const char *name);
 int verify_package(const char *name);
 int package_meta(const char *file, struct meta *m);
 
 /* repo.c */
+struct server {
+	char *name, *url;	/* url ends in / */
+	int signed_;
+	char *buf;		/* its list, which its packages' strings point into */
+};
 struct avail {
 	struct meta m;
 	long size;
 	char sha256[65];
 	char *file;
+	struct server *s;	/* the server it's on */
 };
 struct index {
-	char *url;		/* server */
-	int signed_;
-	struct avail *a;
+	struct server *s;	/* in the order they're searched: main first */
+	int ns;
+	struct avail *a;	/* every server's packages, server by server */
 	int n;
-	char *buf;
 };
 int update(const char *server, int allow_unsigned);
 int loadindex(struct index *ix);
-struct avail *findavail(struct index *ix, const char *name);
-int fetch_package(struct index *ix, struct avail *a, char **path);
+struct server *findserver(struct index *ix, const char *name);
+/* The highest version of name on s, or if s is NULL, on the first server that has it */
+struct avail *findavail(struct index *ix, const char *name, struct server *s);
+int fetch_package(struct avail *a, char **path);
 
 #endif

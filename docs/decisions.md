@@ -44,11 +44,12 @@ index instead:
 - The maintainer keeps the signing key and signs once per publish, when the index is
   rebuilt. Packages themselves aren't signed; the index's hashes cover them. Authors who
   aren't the maintainer send packages in, or run their own server with their own key.
-- `pkg` trusts the keys built into it plus any added in `/etc/pkg.conf`. More than one key
-  can be trusted at once, so a key can be replaced by shipping a `pkg` that knows the new
+- `pkg` trusts the keys built into it plus any added in `/etc/pkg.conf`, each for one
+  server only (2026-10-30, "Keys belong to a server"). More than one key can be trusted
+  for a server at once, so a key can be replaced by shipping a `pkg` that knows the new
   one.
-- A custom server either has its key added in `/etc/pkg.conf` or is used with an
-  explicit flag that accepts it unsigned.
+- A custom server either has its key in `/etc/pkg.conf` or is accepted unsigned there
+  (or, for the default server, with `pkg update --unsigned`).
 - A package file installed from disk is checked against its own checksums only: the same
   trust as running any program you downloaded.
 
@@ -56,7 +57,8 @@ index instead:
 
 pkg has a default server built in, which answers plain HTTP (and HTTPS for browsers).
 The user can add other servers in `/etc/pkg.conf` or name one on the command line. During
-development, a local server.
+development, a local server. How several work together: 2026-10-30, "More than one
+server".
 
 ### A/UX 3.1 required, 3.0.1 wanted
 
@@ -99,8 +101,9 @@ signatures by more than one key during a change of keys. Versions compare as Deb
 
 ### The package list remembers its server
 
-`-s` goes with `pkg update` only. Installs and upgrades fetch from the server the current
-list came from, so a list and its packages can't come from different places.
+`-s` goes with `pkg update` only. Installs and upgrades fetch a package from the server
+whose list named it, so a list and its packages can't come from different places. (With
+more than one server, each list remembers its own.)
 
 ### Mac file names in Mac Roman
 
@@ -146,3 +149,110 @@ and two files cached separately could come from different publishes.
 
 The build for this machine, which the tests use, leaves the default server out. Its
 built-in keys are the real ones.
+
+## 2026-10-30: more than one server
+
+### Replacing the default server and adding servers are different things
+
+pkg's own server is called `main`. A `server` line in `/etc/pkg.conf` replaces it: with
+a mirror, which the built-in keys still verify because a list names its packages
+relative to the server, or with a different set of packages altogether, given its key by
+`key` lines. `repo NAME URL KEY` lines add servers beside it. Cargo draws the same line
+(source replacement is for mirrors; other registries are named), as Debian does between
+a mirror and another source.
+
+### Keys belong to a server
+
+The built-in keys and `key` lines are trusted for main only, and the keys on a repo line
+for that server only. Before, any key pkg trusted could sign any server's list, so over
+plain HTTP whoever held a key added for one server could pass a list off as another's;
+that's why Debian replaced `apt-key`'s shared keyring with a key per source. `unsigned`
+is per server too, and `--unsigned` is for main only: accepting one hobbyist's server
+unsigned mustn't leave main unchecked.
+
+### The first server that has a package has it
+
+Servers are searched in order: main, then the repo lines as written. The first that has a
+package by a name is where it comes from, whatever version the others have, and
+`SERVER/NAME` picks one. apt, dnf and pip's `--extra-index-url` take the highest version
+on any server, which lets any server replace any package by numbering it higher
+("dependency confusion"); pacman's ordered repositories don't. Only one package of a name
+can be installed, so names aren't namespaced, as npm's scopes are: `SERVER/NAME` only
+chooses.
+
+### Packages stay with the server they came from
+
+An installed package's record names its server, and it's upgraded from there only, as
+FreeBSD's pkg does by default. A repo adding a package main has, or main adding one a
+repo has, doesn't move anyone's installed copy; `pkg install SERVER/NAME` does. If pkg
+has no list from a package's server any more, it says so and doesn't upgrade it from
+elsewhere. A package installed from a file, or before records named servers, follows the
+first server that has it.
+
+A record's `installed`, `from` and `server` lines are pkg's own, so a package's `+PKG`
+may no longer have them: one could otherwise name its server for itself.
+
+### A server that can't be had keeps its last list
+
+`pkg update` gets every server's list. From one it can't reach, or whose list it refuses,
+it keeps the list it had, so a server being down neither hides its packages nor changes
+which server a name resolves to; `pkg update` still fails. A server no longer in
+`/etc/pkg.conf` is dropped. `-s` still names main's server for one update.
+
+### Dependencies between servers, once there are dependencies
+
+Not built yet ("No dependencies yet"), but decided now, while it's cheap: a package may
+depend on packages from its own server or from main, and nothing else, as Ubuntu's PPAs
+build on its main archive. A repo can rely on main; main never relies on a repo, and no
+repo on another.
+
+## 2026-10-30: the command line
+
+What matters most is that pkg does exactly what was meant or nothing; then that it's
+what someone would guess; then that it looks like package managers they know.
+
+### A mistake on the command line does nothing
+
+Every option and argument is checked before pkg changes anything, and a mistake gets a
+line saying what's wrong (exit 2), not the whole usage. Before, `-u` was ignored by
+every command but `update`, and `pkg -s NAME update`, given a server's name for its
+address, updated the other servers before failing.
+
+### Options go anywhere
+
+Before or after the command, with `--` ending them, as apt and Homebrew allow. Before,
+options after the command were package names: `pkg remove games -R /mnt` removed games
+from `/`, then said `-R` and `/mnt` weren't installed. No package's name starts with
+`-`, so this is never ambiguous.
+
+### Files and packages are told apart by how they're written
+
+A package file ends in `.pkg` or is a path with a `/` in it; `SERVER/NAME` is a package,
+even if a file has that name (`./SERVER/NAME` is the file). Before, it depended on what
+was in the current directory. Package names may no longer end in `.pkg`, so that a
+mistyped file name is reported as a missing file, not a missing package.
+
+### pkg takes back every name it shows
+
+`pkg list` shows a package from a server other than main as `SERVER/NAME`, as `pkg list
+-a` does, and every command that takes an installed package takes that form, checking
+it came from that server.
+
+### `owner` takes whole paths
+
+From `/`, without `.` or `..`: a relative path was taken from `/`, and `..` can't be
+resolved without knowing which directories are symbolic links, so pkg gave wrong
+answers. A directory a package made is that package's.
+
+### Renamed options
+
+`-R` is `-r`, as for FreeBSD's pkg and pacman; `-R` reads as "recursive", which
+FreeBSD's `pkg delete -R` is. `-u` is `--unsigned`, the word `/etc/pkg.conf` uses: the one
+option that turns checking off is spelled out (as apt's `--allow-unauthenticated` and
+dnf's `--nogpgcheck` are), and `-u` read like `update` or `upgrade`. `-v` did nothing and
+is gone. `-s` and `--unsigned` go with `update` and are shown there.
+
+### Exit status
+
+0 done; 1 couldn't, or found nothing (`search` now too, as `owner` and `info` already
+did), or `verify` found changes; 2 a mistake on the command line.
