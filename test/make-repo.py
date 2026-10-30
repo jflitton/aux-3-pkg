@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Make the packages, signed package lists and pkg.conf that test/aux-test.sh uses inside
+A/UX, as one flat directory (tools/aux-run.py puts each file in /usr/local/bin):
+
+  make-repo.py OUTDIR
+
+r1.index, r1.index.sig    server 1: hello 1.0, macapp 1.0
+r2.index, r2.index.sig    server 2: hello 1.1, macapp 1.0
+*.pkg                     the packages
+pkg.conf                  trusting the key that signed both
+"""
+import os, shutil, subprocess, sys, tempfile
+
+TOOLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'tools')
+
+
+def tool(*args):
+    return subprocess.run([sys.executable, '-I'] + list(args), check=True,
+                          capture_output=True, text=True).stdout
+
+
+def package(work, outdir, name, version, files):
+    top = os.path.join(work, 'src', '%s-%s' % (name, version))
+    for path, (data, mode) in files.items():
+        full = os.path.join(top, path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, 'wb') as f:
+            f.write(data)
+        os.chmod(full, mode)
+    with open(os.path.join(top, '+PKG'), 'w') as f:
+        f.write('format 1\nname %s\nversion %s\nsummary A test package\n' % (name, version))
+    return tool(os.path.join(TOOLS, 'pkg-build.py'), top, outdir).strip()
+
+
+def main():
+    out = sys.argv[1]
+    work = tempfile.mkdtemp()
+    os.makedirs(out, exist_ok=True)
+    key = os.path.join(work, 'key')
+    pub = tool(os.path.join(TOOLS, 'pkg-repo.py'), 'keygen', key).strip()
+    servers = {'r1': [], 'r2': []}
+    # no #! line: A/UX's sh runs a script the kernel won't
+    servers['r1'].append(package(work, out, 'hello', '1.0', {
+        'usr/local/bin/hello': (b'echo hello from a package\n', 0o755)}))
+    servers['r2'].append(package(work, out, 'hello', '1.1', {
+        'usr/local/bin/hello': (b'echo hello again\n', 0o755)}))
+    mac = package(work, out, 'macapp', '1.0', {
+        'mac/bin/Fancy Term': (b'\0\1not really an app', 0o755),
+        'mac/bin/%Fancy Term': (b'\0\5\26\7 not really AppleDouble', 0o644)})
+    for name, pkgs in servers.items():
+        d = os.path.join(work, name)
+        os.makedirs(d)
+        for p in pkgs + [mac]:
+            shutil.copy(p, d)
+        tool(os.path.join(TOOLS, 'pkg-repo.py'), 'index', d, key)
+        for f in ('index', 'index.sig'):
+            shutil.copy(os.path.join(d, f), os.path.join(out, '%s.%s' % (name, f)))
+    with open(os.path.join(out, 'pkg.conf'), 'w') as f:
+        f.write('key %s\n' % pub)
+    shutil.rmtree(work)
+
+
+if __name__ == '__main__':
+    main()
