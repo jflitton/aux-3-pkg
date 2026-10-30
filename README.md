@@ -4,10 +4,9 @@ The missing package manager for A/UX 3.1, Apple's Unix for 68k Macs. It can inst
 package files or via http. A/UX can't use HTTPS, so pkg checks every download against 
 a signed package list instead. Installed packages can be upgraded, checked and removed cleanly.
 
-**Status:** early. Everything works in QEMU (A/UX 3.1 on an emulated Quadra 800); pkg
-hasn't yet been tried on a real Mac, and the default server has no packages yet. A/UX
-3.0.1 should work too (its system calls and structures are the same as far as pkg uses
-them) but hasn't been tried.
+**Status:** early, and the default server has no packages yet. A/UX 3.0.1 should work
+too (its system calls and structures are the same as far as pkg uses them) but hasn't
+been tried.
 
 ## Getting pkg
 

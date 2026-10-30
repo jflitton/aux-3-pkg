@@ -110,8 +110,7 @@ list came from, so a list and its packages can't come from different places.
 
 QEMU's Quadra 800 has no network card A/UX 3.1 can drive, so the A/UX tests run a small
 HTTP and DNS server on A/UX's loopback interface. pkg also builds for the host, where the
-same code is tested against a local server in seconds. Real hardware (DaynaPORT or an
-Ethernet card) is still to be tried.
+same code is tested against a local server in seconds.
 
 ### pkg doesn't know how servers are hosted
 
