@@ -389,6 +389,8 @@ lock(void)
 		old = readfile(lockpath, NULL, 64);
 		pid = old ? strtol(old, NULL, 10) : 0;
 		free(old);
+		if (pid == getpid())
+			return 0;	/* taken before an upgrade ran the new pkg in its place */
 		if (pid > 0 && (kill(pid, 0) == 0 || errno == EPERM)) {
 			warn("another pkg is running (process %ld)", pid);
 			return -1;

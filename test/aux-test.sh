@@ -42,15 +42,17 @@ e() {
 	fi
 }
 
-mkdir /tmp/www /tmp/www/r1 /tmp/www/r2
+mkdir /tmp/www /tmp/www/r1 /tmp/www/r2 /tmp/www/r3
 cd /usr/local/bin
-for r in r1 r2; do
+for r in r1 r2 r3; do
 	mv $r.index /tmp/www/$r/index
 	mv $r.index.sig /tmp/www/$r/index.sig
 done
 cp hello-1.0.pkg macapp-1.0.pkg /tmp/www/r1
+cp hello-1.1.pkg macapp-1.0.pkg /tmp/www/r3
 mv hello-1.1.pkg macapp-1.0.pkg /tmp/www/r2
-mv hello-1.0.pkg /tmp
+mv pkg-2.0.pkg /tmp/www/r3
+mv hello-1.0.pkg pkg-1.0.pkg /tmp
 mv pkg.conf /etc/pkg.conf
 echo "nameserver 127.0.0.1" > /etc/resolv.conf
 cd /tmp
@@ -131,6 +133,23 @@ t '...and it stays in /etc/shells' '^/usr/local/bin/shelly$' cat /etc/shells
 chsh Guest /bin/csh > /dev/null
 t 'remove' 'Took /usr/local/bin/shelly out of /etc/shells' pkg remove shelly
 e "...and it's gone" 1 '^0$' grep -c shelly /etc/shells
+
+# pkg upgrades itself first, then runs the new pkg for the rest. Its package's pkg is a
+# script that runs the one being tested; 2.0's says it's running first.
+mv /usr/local/bin/pkg /tmp/pkg.real
+t 'pkg as a package' 'Installed pkg 1.0' /tmp/pkg.real install /tmp/pkg-1.0.pkg
+pkg update -s http://pkg.test:8080/r1/ > /dev/null 2>&1
+t '...and hello' 'Installed hello 1.0' pkg install hello
+pkg update -s http://pkg.test:8080/r3/ > /dev/null 2>&1
+pkg upgrade > /tmp/upgrade.out 2>&1
+echo "exit $?" >> /tmp/upgrade.out
+t 'upgrade does pkg first' '^Upgraded pkg from 1.0 to 2.0$' sed -n 1p /tmp/upgrade.out
+t '...then runs the new pkg' '^pkg 2.0: upgrade$' sed -n 2p /tmp/upgrade.out
+t '...which does the rest' '^Upgraded hello from 1.0 to 1.1$' sed -n 3p /tmp/upgrade.out
+t '...and succeeds' '^exit 0$' sed -n 4p /tmp/upgrade.out
+t '...and lets go of the lock' 'no lock' sh -c \
+	'test -f /usr/local/lib/pkg/lock || echo no lock'
+t '...leaving everything up to date' 'up to date' pkg upgrade
 
 kill $httpd
 test -s /tmp/fails && exit 1

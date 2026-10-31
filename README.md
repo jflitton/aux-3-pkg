@@ -4,8 +4,8 @@ The missing package manager for A/UX 3.1, Apple's Unix for 68k Macs. It can inst
 package files or via http. A/UX can't use HTTPS, so pkg checks every download against 
 a signed package list instead. Installed packages can be upgraded, checked and removed cleanly.
 
-**Status:** early. The default server has pkg itself and, so far, one other package,
-gzip, from [aux-3-ports](https://github.com/jflitton/aux-3-ports). A/UX 3.0.1 should work
+**Status:** early. The default server has pkg itself and, so far, two other packages,
+gzip and mksh, from [aux-3-ports](https://github.com/jflitton/aux-3-ports). A/UX 3.0.1 should work
 too (its system calls and structures are the same as far as pkg uses them) but hasn't
 been tried.
 
@@ -31,6 +31,10 @@ In CommandShell, as root:
 and `pkg list` (what's installed), `pkg search WORD`, `pkg info PACKAGE`, `pkg files
 PACKAGE`, `pkg verify` (have installed files changed?) and `pkg owner /PATH` (which package
 installed it). `pkg help` lists them all. Options can go before or after the command.
+
+`pkg upgrade` upgrades pkg before anything else and has the new pkg do the rest, since a
+new package can need a newer pkg. (That's from pkg 0.4; with an older one, `pkg upgrade
+pkg` first.)
 
 A package file is told from a package's name by how it's written, never by what's on
 disk: it ends in `.pkg`, or it's a path with a `/` in it (`./hello` for one in the current

@@ -6,7 +6,10 @@ A/UX, as one flat directory (tools/aux-run.py puts each file in /usr/local/bin):
 
 r1.index, r1.index.sig    server 1 (main): hello 1.0, macapp 1.0
 r2.index, r2.index.sig    server 2, with a key of its own: hello 1.1, macapp 1.0
-*.pkg                     the packages, and shelly-1.0.pkg, whose program is a shell
+r3.index, r3.index.sig    main's next list, signed as server 1's: hello 1.1, pkg 2.0,
+                          macapp 1.0
+*.pkg                     the packages; shelly-1.0.pkg, whose program is a shell; and
+                          pkg-1.0.pkg, to install from the file
 pkg.conf                  trusting server 1's key for main, and naming server 2 "two"
 """
 import os, shutil, subprocess, sys, tempfile
@@ -41,12 +44,22 @@ def main():
     for name in ('r1', 'r2'):
         keys[name] = os.path.join(work, name + '.key')
         pubs[name] = tool(os.path.join(TOOLS, 'pkg-repo.py'), 'keygen', keys[name]).strip()
-    servers = {'r1': [], 'r2': []}
+    servers = {'r1': [], 'r2': [], 'r3': []}
+    signer = {'r1': 'r1', 'r2': 'r2', 'r3': 'r1'}
     # no #! line: A/UX's sh runs a script the kernel won't
     servers['r1'].append(package(work, out, 'hello', '1.0', {
         'usr/local/bin/hello': (b'echo hello from a package\n', 0o755)}))
-    servers['r2'].append(package(work, out, 'hello', '1.1', {
-        'usr/local/bin/hello': (b'echo hello again\n', 0o755)}))
+    hello11 = package(work, out, 'hello', '1.1', {
+        'usr/local/bin/hello': (b'echo hello again\n', 0o755)})
+    servers['r2'].append(hello11)
+    servers['r3'].append(hello11)
+    # pkg's own package, whose pkg runs the one being tested: with #!, as pkg runs the
+    # new one itself, and the new one says so
+    package(work, out, 'pkg', '1.0', {
+        'usr/local/bin/pkg': (b'#!/bin/sh\nexec /tmp/pkg.real "$@"\n', 0o755)})
+    servers['r3'].append(package(work, out, 'pkg', '2.0', {
+        'usr/local/bin/pkg': (b'#!/bin/sh\necho "pkg 2.0: $*"\nexec /tmp/pkg.real "$@"\n',
+                              0o755)}))
     mac = package(work, out, 'macapp', '1.0', {
         'mac/bin/Fancy Term': (b'\0\1not really an app', 0o755),
         'mac/bin/%Fancy Term': (b'\0\5\26\7 not really AppleDouble', 0o644)})
@@ -57,7 +70,7 @@ def main():
         os.makedirs(d)
         for p in pkgs + [mac]:
             shutil.copy(p, d)
-        tool(os.path.join(TOOLS, 'pkg-repo.py'), 'index', d, keys[name])
+        tool(os.path.join(TOOLS, 'pkg-repo.py'), 'index', d, keys[signer[name]])
         for f in ('index', 'index.sig'):
             shutil.copy(os.path.join(d, f), os.path.join(out, '%s.%s' % (name, f)))
     with open(os.path.join(out, 'pkg.conf'), 'w') as f:

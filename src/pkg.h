@@ -5,7 +5,7 @@
 #include "sys.h"
 #include "sha.h"
 
-#define PKG_VERSION	"0.3"
+#define PKG_VERSION	"0.4"
 #define FORMAT		2	/* of packages and records this pkg reads */
 #define INDEX_FORMAT	1	/* of package lists */
 
@@ -14,6 +14,9 @@
 #define CONFFILE	"/etc/pkg.conf"
 
 #define MAINSERVER	"main"	/* the built-in server's name, or pkg.conf's server line's */
+
+#define SELF		"pkg"	/* pkg's own package... */
+#define SELFPROG	"/usr/local/bin/pkg"	/* ...and where it puts pkg */
 
 extern const char *root;	/* -r: where to install, "" for / */
 

@@ -69,6 +69,7 @@ __cerror:
 	SYS0	dup, 41
 	SYS0	signal, 48
 	SYS0	ioctl, 54
+	SYS0	execve, 59
 	SYS0	umask, 60
 	SYS0	fcntl, 62
 

@@ -452,15 +452,106 @@ cmd_install(char **args, int n)
 	return bad;
 }
 
+/* The newer version of installed package name, from the server it follows; NULL if
+   there's none. Says nothing. */
+static struct avail *
+newer(struct index *ix, const char *name)
+{
+	struct avail *a = NULL;
+	struct record r;
+	int gone;
+
+	if (validname(name) && readrecord(name, &r) == 0) {
+		a = follows(ix, &r, &gone);
+		if (a && vercmp(a->m.version, r.m.version) <= 0)
+			a = NULL;
+		freerecord(&r);
+	}
+	return a;
+}
+
+/* Whether arg names pkg's own package, as installedname() would take it. Says nothing. */
+static int
+isself(const char *arg)
+{
+	const char *name = arg;
+	char *sname = splitname(arg, &name);
+	struct record r;
+	int yes = 0;
+
+	if (!strcmp(name, SELF) && readrecord(SELF, &r) == 0) {
+		yes = !sname || (r.server && !strcmp(r.server, sname));
+		freerecord(&r);
+	}
+	free(sname);
+	return yes;
+}
+
+/*
+ * pkg upgrades itself before anything else, as the others' new versions may need the new
+ * pkg, and then, if there's more to do, runs the new pkg to do it: pkg upgrade again,
+ * with the same packages less pkg. Not with -r, where the pkg running isn't the one it
+ * upgraded. args are upgrade's, none for all that's installed. 1 if it upgraded pkg or
+ * tried to, setting *bad if that failed; 0 if pkg isn't to be upgraded.
+ */
+static int
+upgrade_self(struct index *ix, char **args, int n, int *bad)
+{
+	struct avail *a;
+	char **argv;
+	int i, j, self = n == 0, more = 0;
+
+	if (n == 0) {
+		char **names;
+		int k = listinstalled(&names);
+
+		for (i = 0; i < k; i++) {
+			more |= strcmp(names[i], SELF) && newer(ix, names[i]);
+			free(names[i]);
+		}
+		free(names);
+	}
+	for (i = 0; i < n; i++)
+		if (isself(args[i]))
+			self = 1;
+		else {
+			const char *name = args[i];
+
+			free(splitname(args[i], &name));
+			more |= newer(ix, name) != NULL;
+		}
+	if (!self || !(a = newer(ix, SELF)))
+		return 0;
+	if (install_avail(a) < 0) {
+		*bad = 1;
+		return 1;
+	}
+	if (!more || *root)
+		return 1;
+	argv = xmalloc((n + 3) * sizeof(char *));
+	argv[0] = SELF;
+	argv[1] = "upgrade";
+	for (i = 0, j = 2; i < n; i++)
+		if (!isself(args[i]))
+			argv[j++] = args[i];
+	argv[j] = NULL;
+	execve(SELFPROG, argv, environ);
+	warn("can't run the new pkg, %s: %s; carrying on with this one", SELFPROG,
+		strerror(errno));
+	free(argv);
+	return 1;
+}
+
 static int
 cmd_upgrade(char **args, int n)
 {
 	struct index ix;
 	char **names = args;
-	int i, bad = 0, did = 0, stuck = 0, all = n == 0;
+	int i, bad = 0, did, stuck = 0, all = n == 0;
 
 	if (loadindex(&ix) < 0)
 		return 1;
+	did = upgrade_self(&ix, args, n, &bad);
 	if (all)
 		n = listinstalled(&names);
 	for (i = 0; i < n; i++) {
@@ -469,6 +560,8 @@ cmd_upgrade(char **args, int n)
 		struct avail *a;
 		int gone;
 
+		if (name && did && !strcmp(name, SELF))
+			continue;	/* done first */
 		if (!name || readrecord(name, &r) < 0) {
 			bad |= !all;
 			continue;

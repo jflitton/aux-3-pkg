@@ -209,6 +209,7 @@ void sync(void);
 int kill(pid_t pid, int sig);
 int dup(int fd);
 int ioctl(int fd, int req, ...);
+int execve(const char *path, char *const argv[], char *const envp[]);
 mode_t umask(mode_t mask);
 int fcntl(int fd, int cmd, ...);
 void (*signal(int sig, void (*func)(int)))(int);

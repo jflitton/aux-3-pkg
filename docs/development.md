@@ -77,9 +77,9 @@ Found from A/UX 3.1's own executables, libc and headers; `rt/` follows them.
   fields; the kernel fills both.
 - **Quirks.** The System V `time` call fails from our code, so `time()` uses
   `gettimeofday`. `gettimeofday` is 3.0.1's call (0x88), which 3.1 keeps beside its own.
-  A/UX's `/etc/hosts` writes addresses in hex (`0x7F.0x00.0x00.0x01`). init starts an
-  inittab command with no standard input, so a script it runs directly is read from fd
-  0, and `exec <...` in it cuts the script off.
+  A/UX's `/etc/hosts` writes addresses in hex (`0x7F.0x00.0x00.0x01`). The kernel runs
+  `#!` scripts. init starts an inittab command with no standard input, so a script it
+  runs directly is read from fd 0, and `exec <...` in it cuts the script off.
 
 ## A/UX 3.0.1
 

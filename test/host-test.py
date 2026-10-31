@@ -638,6 +638,29 @@ def main():
     conf('key %s' % pub)
     pkg('update', '-s', url)
 
+    # pkg upgrades itself first. With -r it carries on itself, as the pkg running isn't
+    # the one it upgraded, which here would say if it ran.
+    new_pkg = {'usr/local/bin/pkg': (b'#!/bin/sh\necho the new pkg ran\n', 0o755)}
+    build('pkg', '1.0', new_pkg)
+    index()
+    pkg('-s', url, 'update')
+    pkg('install', 'pkg')
+    pkg('install', hello10)
+    build('pkg', '1.1', new_pkg)
+    index()
+    pkg('-s', url, 'update')
+    code, out = pkg('upgrade')
+    check(code == 0 and out == 'Upgraded pkg from 1.0 to 1.1\n'
+          'Upgraded hello from 1.0 to 3.0\n', 'upgrade does pkg first', out)
+    build('pkg', '1.2', new_pkg)
+    build('hello', '3.1', {'usr/local/bin/hello': (b'#!/bin/sh\necho hello 3\n', 0o755)})
+    index()
+    pkg('-s', url, 'update')
+    code, out = pkg('upgrade', 'hello', 'main/pkg')
+    check(code == 0 and out == 'Upgraded pkg from 1.1 to 1.2\n'
+          'Upgraded hello from 3.0 to 3.1\n', '...even when it is named last', out)
+    pkg('remove', 'pkg', 'hello')
+
     check(not temporaries(), 'no temporaries left', temporaries())
     code, out = pkg('version')
     check(code == 0 and out.startswith('pkg '), 'version', out)

@@ -29,6 +29,8 @@
 #include <time.h>
 #include <unistd.h>
 #include <utime.h>
+
+extern char **environ;
 #endif
 
 /* Calls fn(name, arg) for each entry of directory path but . and ..; stops at the first

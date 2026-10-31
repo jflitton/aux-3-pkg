@@ -262,6 +262,8 @@ main(int argc, char **argv)
 		tv.tv_usec >= 0 && tv.tv_usec < 1000000,
 		"time, gettimeofday", "%ld %ld.%06ld", now, tv.tv_sec, tv.tv_usec);
 	check(1, "getuid", "%d, pid %d", getuid(), getpid());
+	r = execve("/no/such", argv, environ);	/* aux-test.sh's upgrade runs one that works */
+	check(r < 0 && errno == ENOENT, "execve of nothing", "%d, %s", r, strerror(errno));
 	test_format();
 	test_stat();
 	test_files();

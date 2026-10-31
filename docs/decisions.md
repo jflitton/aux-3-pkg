@@ -298,3 +298,20 @@ with one are format 2, which 0.2 refuses ("upgrade pkg"). Others stay format 1, 
 can still install them, and a record keeps its package's format, so an older `pkg` can
 still read the records of what it understands. The package list's format is separate and
 still 1.
+
+## 2026-10-31: pkg upgrades itself first
+
+### Then the new pkg does the rest
+
+A package can need a newer pkg than the one installed, which refuses it ("upgrade pkg").
+`pkg upgrade` went through packages in alphabetical order, so pkg 0.2 refused mksh,
+which comes before pkg, and then upgraded pkg. Now pkg goes first, and if there's more
+to do, pkg runs the new pkg in its own place to do it: `pkg upgrade` again, with the same
+packages less pkg. The new pkg is `/usr/local/bin/pkg`, where its package puts it, and
+it keeps the lock, as it's the same process; if it can't be run, the old one carries on.
+With `-r` the old one always carries on, since the pkg running isn't the one it
+upgraded. From pkg 0.4: older ones still go in alphabetical order.
+
+Rejected: upgrading pkg first and carrying on in the old pkg, which can't install what
+needs the new one; and running the new pkg as a child, which needs `fork` and `wait` in
+`rt/` and the lock handed to another process, to gain only the old pkg's exit status.
