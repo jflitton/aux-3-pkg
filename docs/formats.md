@@ -28,7 +28,13 @@ value` lines (the key, one space, the rest of the line):
 
 `format`, `name`, `version` and `summary` are required; other keys are kept and shown by
 `pkg info` (for example `url`, `license`, `maintainer`), except `installed`, `from` and
-`server`, which are the record's own (below) and make the package invalid. Every other member is the
+`server`, which are the record's own (below) and make the package invalid.
+
+`shell PATH`, which may be given more than once, names a login shell in the package, as a
+path from `/` (`shell /usr/local/bin/mksh`). Installing the package adds it to
+`/etc/shells`; removing the package takes it out, and is refused while it's someone's
+login shell in `/etc/passwd`. A package with a `shell` line is format 2, which needs pkg
+0.3 or later; others are format 1. Every other member is the
 package's content: regular files, directories and symbolic links, with their modes,
 owners and modification times. Other member types, and other names starting with `+`,
 make the package invalid. A Mac file's resource fork and Finder information are its
@@ -91,7 +97,8 @@ repo lines as written.
 `servers`: a line per server, in that order: its name, URL, and `signed` or `unsigned`,
 separated by tabs. `pkg update` writes it after the lists.
 
-The record of an installed package: `key value` lines as in `+PKG` (plus `installed`, the
+The record of an installed package: `key value` lines as in `+PKG`, with its `format`
+(plus `installed`, the
 time as seconds since 1970, `from`, the URL or file it came from, and `server`, the name
 of the server it came from, if it came from one), then a line per thing it installed:
 

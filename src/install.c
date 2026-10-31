@@ -346,6 +346,185 @@ remove_leftovers(struct inst *s)
 	free(dirs);
 }
 
+/*
+ * Shells: a package's "shell PATH" lines name its programs that are login shells.
+ * Installing it adds them to /etc/shells, the list A/UX's chsh, ftpd and Login check;
+ * removing it takes them out, and is refused while one is someone's login shell.
+ */
+
+/* m's shells, NULL-terminated */
+static char **
+shells(struct meta *m)
+{
+	char **v = xmalloc(sizeof(char *));
+	const char *s = m->extra, *e;
+	int n = 0;
+
+	while (s && (e = strchr(s, '\n'))) {
+		if (!strncmp(s, "shell ", 6)) {
+			v = xrealloc(v, (n + 2) * sizeof(char *));
+			v[n] = xmalloc(e - s - 5);
+			memcpy(v[n], s + 6, e - s - 6);
+			v[n++][e - s - 6] = 0;
+		}
+		s = e + 1;
+	}
+	v[n] = NULL;
+	return v;
+}
+
+static int
+listed(char **v, const char *s)
+{
+	for (; v && *v; v++)
+		if (!strcmp(*v, s))
+			return 1;
+	return 0;
+}
+
+static void
+freev(char **v)
+{
+	char **p;
+
+	for (p = v; p && *p; p++)
+		free(*p);
+	free(v);
+}
+
+/* Whether shell is in /etc/shells (-1 if that can't be read), having added it (add > 0)
+   or taken it out (add < 0) if need be. The file keeps its owner and mode. */
+static int
+etcshells(const char *shell, int add)
+{
+	char *path = rootpath("/etc/shells"), *text, *out, *p, *line;
+	size_t len, n = 0, l;
+	struct stat st;
+	int was = 0;
+
+	if (stat(path, &st) < 0 || !(text = readfile(path, &len, 1 << 20))) {
+		if (add > 0)
+			warn("can't add %s to /etc/shells: %s", shell, strerror(errno));
+		else if (add < 0)
+			warn("can't take %s out of /etc/shells: %s", shell, strerror(errno));
+		free(path);
+		return -1;
+	}
+	out = xmalloc(len + strlen(shell) + 2);
+	p = text;
+	while ((line = nextline(&p))) {
+		if (!strcmp(line, shell)) {
+			was = 1;
+			if (add < 0)
+				continue;
+		}
+		l = strlen(line);
+		memcpy(out + n, line, l);
+		out[n + l] = '\n';
+		n += l + 1;
+	}
+	if ((add > 0 && !was) || (add < 0 && was)) {
+		if (add > 0) {
+			l = strlen(shell);
+			memcpy(out + n, shell, l);
+			out[n + l] = '\n';
+			n += l + 1;
+		}
+		if (writefile(path, out, n) < 0)
+			warn("can't change /etc/shells: %s", strerror(errno));
+		else {
+			chown(path, st.st_uid, st.st_gid);
+			chmod(path, st.st_mode & 07777);
+			say(add > 0 ? "Added %s to /etc/shells\n" : "Took %s out of /etc/shells\n",
+				shell);
+		}
+	}
+	free(text);
+	free(out);
+	free(path);
+	return was;
+}
+
+/* The users in /etc/passwd whose login shell is shell, as "a, b", or NULL */
+static char *
+users_of(const char *shell)
+{
+	char *path = rootpath("/etc/passwd"), *text = readfile(path, NULL, 4 << 20);
+	char *p = text, *line, *who = NULL;
+
+	while (p && (line = nextline(&p))) {
+		char *f[7], *c = line;
+		int n = 0;
+
+		while (n < 7) {
+			f[n++] = c;
+			if (!(c = strchr(c, ':')))
+				break;
+			*c++ = 0;
+		}
+		if (n == 7 && !strcmp(f[6], shell)) {
+			char *old = who;
+
+			who = old ? xsprintf("%s, %s", old, f[0]) : xstrdup(f[0]);
+			free(old);
+		}
+	}
+	free(text);
+	free(path);
+	return who;
+}
+
+/* Why old's shells that keep (if any) doesn't have too can't go, or NULL if they can */
+static char *
+shells_in_use(struct meta *old, struct meta *keep)
+{
+	char **sh = shells(old), **k = keep ? shells(keep) : NULL, *who, *why = NULL;
+	int i;
+
+	for (i = 0; sh[i] && !why; i++)
+		if (!listed(k, sh[i]) && (who = users_of(sh[i]))) {
+			why = xsprintf("%s is the login shell of %s; change that with chsh first",
+				sh[i], who);
+			free(who);
+		}
+	freev(sh);
+	freev(k);
+	return why;
+}
+
+/* old's shells that keep (if any) doesn't have too out of /etc/shells */
+static void
+drop_shells(struct meta *old, struct meta *keep)
+{
+	char **sh = shells(old), **k = keep ? shells(keep) : NULL;
+	int i;
+
+	for (i = 0; sh[i]; i++)
+		if (!listed(k, sh[i]))
+			etcshells(sh[i], -1);
+	freev(sh);
+	freev(k);
+}
+
+/* Before anything is put in place: the package's shells are in it, and the old version's
+   that it drops aren't in use */
+static void
+check_shells(struct inst *s)
+{
+	char **sh = shells(&s->new.m), *why;
+	struct entry *e;
+	int i;
+
+	for (i = 0; sh[i]; i++)
+		if (!(e = findentry(&s->new, sh[i] + 1)) || e->type == 'd')
+			fail(s, "its shell %s isn't a file in it", sh[i]);
+	freev(sh);
+	if (s->have_old && (why = shells_in_use(&s->old.m, &s->new.m))) {
+		fail(s, "%s", why);
+		free(why);
+	}
+}
+
 int
 install_file(const char *file, const char *from, const char *server, const char *expect)
 {
@@ -379,6 +558,8 @@ install_file(const char *file, const char *from, const char *server, const char 
 		fail(s, "it's empty: not a package");
 	if (r == -1 && !s->err[0])
 		fail(s, "%s", t.err ? t.err : gzerr ? gzerr : "unreadable");
+	if (r == 0 && !s->err[0] && !s->same)
+		check_shells(s);
 
 	ok = !s->err[0] && (r == 0 || s->same);
 	if (!ok || s->same) {
@@ -415,6 +596,15 @@ install_file(const char *file, const char *from, const char *server, const char 
 					s->new.m.name, s->old.m.version, s->new.m.version);
 		} else if (ok)
 			say("Installed %s %s\n", s->new.m.name, s->new.m.version);
+		if (ok) {
+			char **sh = shells(&s->new.m);
+
+			if (s->have_old)
+				drop_shells(&s->old.m, &s->new.m);
+			for (i = 0; sh[i]; i++)
+				etcshells(sh[i], 1);
+			freev(sh);
+		}
 	}
 	for (i = 0; i < s->npend; i++) {
 		free(s->pend[i].tmp);
@@ -510,11 +700,17 @@ int
 remove_package(const char *name)
 {
 	struct record r;
-	char **dirs, *path;
+	char **dirs, *path, *why;
 	int i, nd = 0, ret = 0;
 
 	if (readrecord(name, &r) < 0) {
 		warn("%s isn't installed", name);
+		return -1;
+	}
+	if ((why = shells_in_use(&r.m, NULL))) {
+		warn("can't remove %s: %s", name, why);
+		free(why);
+		freerecord(&r);
 		return -1;
 	}
 	dirs = xmalloc(r.n * sizeof(char *) + 1);
@@ -541,6 +737,7 @@ remove_package(const char *name)
 		unlink(path);
 		free(path);
 		say("Removed %s %s\n", r.m.name, r.m.version);
+		drop_shells(&r.m, NULL);
 	} else
 		warn("%s is only partly removed; its record is kept", name);
 	freerecord(&r);
@@ -551,6 +748,7 @@ int
 verify_package(const char *name)
 {
 	struct record r;
+	char **sh;
 	int i, bad = 0;
 
 	if (readrecord(name, &r) < 0) {
@@ -585,6 +783,13 @@ verify_package(const char *name)
 		}
 		free(p);
 	}
+	sh = shells(&r.m);
+	for (i = 0; sh[i]; i++)
+		if (etcshells(sh[i], 0) != 1) {
+			say("%s: %s: not in /etc/shells\n", name, sh[i]);
+			bad++;
+		}
+	freev(sh);
 	freerecord(&r);
 	return bad ? -1 : 0;
 }

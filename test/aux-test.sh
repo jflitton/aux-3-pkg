@@ -114,6 +114,24 @@ t 'remove it' 'Removed hello 1.0' pkg remove hello
 t 'nothing left installed' 'No packages are installed' pkg list
 t 'a server that is not there' "can't connect" pkg -s http://127.0.0.1:1/ update
 
+# shells: Guest's chsh takes only what /etc/shells lists
+perms() { ls -l /etc/shells | awk '{ print substr($1, 2), $3, $4 }'; }
+before=`perms`
+echo 'echo not listed' > /tmp/notlisted
+chmod 755 /tmp/notlisted
+t "Guest's chsh refuses a shell that isn't listed" ':/bin/csh$' sh -c \
+	'su Guest -c "chsh Guest /tmp/notlisted"; grep "^Guest:" /etc/passwd'
+t 'a package with a shell' 'Added /usr/local/bin/shelly to /etc/shells' \
+	pkg install /usr/local/bin/shelly-1.0.pkg
+t "...keeping /etc/shells' owner and mode" "$before" perms
+t "...so a user's chsh takes it" 'shelly' sh -c \
+	'su Guest -c "chsh Guest /usr/local/bin/shelly"; grep "^Guest:" /etc/passwd'
+e "remove refused while it's someone's shell" 1 'login shell of Guest' pkg remove shelly
+t '...and it stays in /etc/shells' '^/usr/local/bin/shelly$' cat /etc/shells
+chsh Guest /bin/csh > /dev/null
+t 'remove' 'Took /usr/local/bin/shelly out of /etc/shells' pkg remove shelly
+e "...and it's gone" 1 '^0$' grep -c shelly /etc/shells
+
 kill $httpd
 test -s /tmp/fails && exit 1
 exit 0

@@ -6,7 +6,7 @@ A/UX, as one flat directory (tools/aux-run.py puts each file in /usr/local/bin):
 
 r1.index, r1.index.sig    server 1 (main): hello 1.0, macapp 1.0
 r2.index, r2.index.sig    server 2, with a key of its own: hello 1.1, macapp 1.0
-*.pkg                     the packages
+*.pkg                     the packages, and shelly-1.0.pkg, whose program is a shell
 pkg.conf                  trusting server 1's key for main, and naming server 2 "two"
 """
 import os, shutil, subprocess, sys, tempfile
@@ -19,7 +19,7 @@ def tool(*args):
                           capture_output=True, text=True).stdout
 
 
-def package(work, outdir, name, version, files):
+def package(work, outdir, name, version, files, extra=''):
     top = os.path.join(work, 'src', '%s-%s' % (name, version))
     for path, (data, mode) in files.items():
         full = os.path.join(top, path)
@@ -28,7 +28,8 @@ def package(work, outdir, name, version, files):
             f.write(data)
         os.chmod(full, mode)
     with open(os.path.join(top, '+PKG'), 'w') as f:
-        f.write('format 1\nname %s\nversion %s\nsummary A test package\n' % (name, version))
+        f.write('format %d\nname %s\nversion %s\nsummary A test package\n%s' % (
+            2 if extra else 1, name, version, extra))
     return tool(os.path.join(TOOLS, 'pkg-build.py'), top, outdir).strip()
 
 
@@ -49,6 +50,8 @@ def main():
     mac = package(work, out, 'macapp', '1.0', {
         'mac/bin/Fancy Term': (b'\0\1not really an app', 0o755),
         'mac/bin/%Fancy Term': (b'\0\5\26\7 not really AppleDouble', 0o644)})
+    package(work, out, 'shelly', '1.0', {
+        'usr/local/bin/shelly': (b'echo shelly here\n', 0o755)}, 'shell /usr/local/bin/shelly\n')
     for name, pkgs in servers.items():
         d = os.path.join(work, name)
         os.makedirs(d)

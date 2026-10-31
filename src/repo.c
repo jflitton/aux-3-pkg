@@ -184,7 +184,7 @@ parseindex(char *text, struct index *ix, struct server *s)
 		warn("%s isn't a package list", s->url);
 		return -1;
 	}
-	if (strtol(line + 14, NULL, 10) > FORMAT) {
+	if (strtol(line + 14, NULL, 10) > INDEX_FORMAT) {
 		warn("the package list from %s is for a newer pkg; upgrade pkg", s->url);
 		return -1;
 	}

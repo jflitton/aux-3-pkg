@@ -67,9 +67,9 @@ def make_tree(top, meta, files):
         os.chmod(full, mode)
 
 
-def build(name, version, files, summary='A test package', extra=(), repo=REPO):
+def build(name, version, files, summary='A test package', extra=(), repo=REPO, format=1):
     top = os.path.join(WORK, 'src', os.path.basename(repo), '%s-%s' % (name, version))
-    make_tree(top, [('format', 1), ('name', name), ('version', version),
+    make_tree(top, [('format', format), ('name', name), ('version', version),
                     ('summary', summary)] + list(extra), files)
     os.makedirs(os.path.join(repo, 'packages'), exist_ok=True)
     return tool(os.path.join(TOOLS, 'pkg-build.py'), top,
@@ -183,7 +183,12 @@ def main():
     raw_package(os.path.join(bad, 'nopkg.pkg'), [('usr/x', b'x')])
     raw_package(os.path.join(bad, 'dotdot.pkg'), [('+PKG', meta), ('../etc/x', b'x')])
     raw_package(os.path.join(bad, 'future.pkg'), [('+PKG', meta.replace(b'format 1',
-                                                                            b'format 2'))])
+                                                                            b'format 3'))])
+    meta2 = meta.replace(b'format 1', b'format 2')
+    raw_package(os.path.join(bad, 'noshell.pkg'), [('+PKG', meta2 + b'shell /usr/x\n'),
+                                                   ('usr/y', b'1')])
+    raw_package(os.path.join(bad, 'relshell.pkg'), [('+PKG', meta2 + b'shell usr/y\n'),
+                                                    ('usr/y', b'1')])
     raw_package(os.path.join(bad, 'own.pkg'), [('+PKG', meta),
                                                ('usr/local/lib/pkg/installed/x', b'x')])
     raw_package(os.path.join(bad, 'twice.pkg'), [('+PKG', meta), ('usr/y', b'1'),
@@ -313,6 +318,8 @@ def main():
     check(code == 0 and 'Installed hello 1.0' in out, 'install from a file', out)
     code, out = pkg('info', 'hello')
     check(hello10 in out, '...recording where it came from', out)
+    check(open(os.path.join(ROOT, 'usr/local/lib/pkg/installed/hello')).read().startswith(
+        'format 1\n'), "a record has its package's format, for older pkgs")
     pkg('remove', 'hello')
     for name, expect in (('nopkg', "doesn't start with +PKG"),
                          ('dotdot', "isn't allowed"),
@@ -320,11 +327,83 @@ def main():
                          ('own', "pkg's own directory"),
                          ('twice', 'in it twice'),
                          ('pkgkey', "pkg's own"),
+                         ('noshell', "shell /usr/x isn't a file in it"),
+                         ('relshell', "isn't a path from /"),
                          ('text', 'not a gzip file')):
         before = files_under(ROOT)
         code, out = pkg('install', os.path.join(bad, name + '.pkg'))
         check(code == 1 and expect in out and files_under(ROOT) == before,
               'bad package refused: %s' % name, out)
+
+    # shells
+    local = os.path.join(WORK, 'local')
+    for what, fmt, files, expect in (
+            ('format 1', 1, {'usr/local/bin/ksh2': b'x'}, 'need format 2'),
+            ('not in the package', 2, {'usr/local/bin/other': b'x'}, 'of a file in the package')):
+        try:
+            build('ksh2', '0', files, repo=local, format=fmt,
+                  extra=[('shell', '/usr/local/bin/ksh2')])
+            out = 'built'
+        except subprocess.CalledProcessError as e:
+            out = e.stderr
+        check(expect in out, 'pkg-build refuses a shell line: %s' % what, out)
+        shutil.rmtree(os.path.join(WORK, 'src', 'local', 'ksh2-0'))
+    shells = os.path.join(ROOT, 'etc', 'shells')
+    stock = '# List of known shells\n/bin/sh\n/bin/csh\n/bin/ksh'    # no newline at the end
+    with open(shells, 'w') as f:
+        f.write(stock)
+    os.chmod(shells, 0o640)
+    passwd = os.path.join(ROOT, 'etc', 'passwd')
+
+    def users(shell):
+        with open(passwd, 'w') as f:
+            f.write('root::0:0::/:/bin/sh\njeff::100:100:Jeff:/users/jeff:%s\n' % shell)
+
+    users('/bin/sh')
+    ksh21 = build('ksh2', '1', {'usr/local/bin/ksh2': (b'x', 0o755)}, repo=local, format=2,
+                  extra=[('shell', '/usr/local/bin/ksh2')])
+    code, out = pkg('install', ksh21)
+    check(code == 0 and 'Added /usr/local/bin/ksh2 to /etc/shells' in out,
+          'install adds its shell to /etc/shells', out)
+    check(open(shells).read() == stock + '\n/usr/local/bin/ksh2\n' and
+          os.stat(shells).st_mode & 0o777 == 0o640, "...keeping the file's lines and mode",
+          open(shells).read())
+    check(open(os.path.join(ROOT, 'usr/local/lib/pkg/installed/ksh2')).read().startswith(
+        'format 2\n'), "...and the record has the package's format")
+    code, out = pkg('info', 'ksh2')
+    check('shell /usr/local/bin/ksh2' in out, 'info shows the shell', out)
+    code, out = pkg('verify', 'ksh2')
+    check(code == 0, 'verify', out)
+    with open(shells, 'w') as f:
+        f.write(stock + '\n')
+    code, out = pkg('verify', 'ksh2')
+    check(code == 1 and 'ksh2: /usr/local/bin/ksh2: not in /etc/shells' in out,
+          'verify finds the shell missing from /etc/shells', out)
+    with open(shells, 'a') as f:
+        f.write('/usr/local/bin/ksh2\n')
+    users('/usr/local/bin/ksh2')
+    before = files_under(ROOT)
+    code, out = pkg('remove', 'ksh2')
+    check(code == 1 and '/usr/local/bin/ksh2 is the login shell of jeff' in out and
+          files_under(ROOT) == before, "remove refused while it's someone's login shell", out)
+    ksh22 = build('ksh2', '2', {'usr/local/bin/ksh3': (b'x', 0o755)}, repo=local, format=2,
+                  extra=[('shell', '/usr/local/bin/ksh3')])
+    code, out = pkg('install', ksh22)
+    check(code == 1 and 'login shell of jeff' in out and files_under(ROOT) == before,
+          '...and so is an upgrade that drops it', out)
+    users('/bin/sh')
+    code, out = pkg('install', ksh22)
+    check(code == 0 and 'Took /usr/local/bin/ksh2 out of /etc/shells' in out and
+          'Added /usr/local/bin/ksh3' in out, 'an upgrade changes its shells', out)
+    code, out = pkg('remove', 'ksh2')
+    check(code == 0 and 'Took /usr/local/bin/ksh3 out of /etc/shells' in out and
+          open(shells).read() == stock + '\n', 'remove takes its shell out', out)
+    os.remove(shells)
+    code, out = pkg('install', ksh21)
+    check(code == 0 and "can't add /usr/local/bin/ksh2 to /etc/shells" in out,
+          'no /etc/shells: installs, and says so', out)
+    pkg('remove', 'ksh2')
+    os.remove(passwd)
 
     # the network misbehaving
     pkg('-s', base + '/damaged/', 'update')

@@ -15,10 +15,13 @@ metaline(struct meta *m, char *line, const char **err)
 	}
 	*v++ = 0;
 	if (!strcmp(line, "format")) {
-		if (strtol(v, NULL, 10) > FORMAT) {
+		if ((m->format = strtol(v, NULL, 10)) > FORMAT) {
 			*err = "it's for a newer pkg (run pkg upgrade pkg)";
 			return -1;
 		}
+	} else if (!strcmp(line, "shell") && (*v != '/' || validpath(v + 1))) {
+		*err = "a shell line isn't a path from /";
+		return -1;
 	} else if (!strcmp(line, "name")) {
 		free(m->name);
 		m->name = xstrdup(v);
@@ -198,8 +201,8 @@ writerecord(struct record *r)
 
 	text = xmalloc(cap);
 	text[0] = 0;
-	ADD("format %d\nname %s\nversion %s\nsummary %s\n", FORMAT, r->m.name, r->m.version,
-		r->m.summary);
+	ADD("format %d\nname %s\nversion %s\nsummary %s\n", r->m.format, r->m.name,
+		r->m.version, r->m.summary);
 	if (r->m.extra)
 		ADD("%s", r->m.extra);
 	ADD("installed %ld\nfrom %s\n", r->installed, r->from ? r->from : "");

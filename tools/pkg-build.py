@@ -24,7 +24,8 @@ def die(msg):
 
 
 def read_meta(path):
-    meta = {}
+    """+PKG's keys and values; shell, which can be given more than once, as a list"""
+    meta = {'shell': []}
     with open(path, encoding='ascii') as f:
         for n, line in enumerate(f, 1):
             line = line.rstrip('\n')
@@ -33,15 +34,20 @@ def read_meta(path):
             key, sep, value = line.partition(' ')
             if not sep:
                 die('%s line %d has no value' % (path, n))
-            meta[key] = value
+            if key == 'shell':
+                meta[key].append(value)
+            else:
+                meta[key] = value
     for key in ('format', 'name', 'version', 'summary'):
         if key not in meta:
             die('%s has no %s line' % (path, key))
     for key in ('installed', 'from', 'server'):
         if key in meta:
             die('%s: %s is pkg\'s own key, for its records' % (path, key))
-    if meta['format'] != '1':
-        die('%s: this pkg-build makes format 1' % path)
+    if meta['format'] not in ('1', '2'):
+        die('%s: this pkg-build makes formats 1 and 2' % path)
+    if meta['shell'] and meta['format'] == '1':
+        die('%s: shell lines need format 2 (pkg 0.3 or later)' % path)
     if not NAME.match(meta['name']) or meta['name'].endswith('.pkg'):
         die('%s: name %r isn\'t allowed (docs/formats.md)' % (path, meta['name']))
     if not VERSION.match(meta['version']):
@@ -82,6 +88,11 @@ def walk(top):
 
 def build(top, outdir):
     meta = read_meta(os.path.join(top, '+PKG'))
+    for shell in meta['shell']:
+        full = os.path.join(top, shell[1:])
+        if not shell.startswith('/') or set(shell[1:].split('/')) & {'', '.', '..'} or \
+                not (os.path.islink(full) or os.path.isfile(full)):
+            die('shell %s: should be a path from /, of a file in the package' % shell)
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode='w', format=tarfile.USTAR_FORMAT,
                       encoding='mac_roman') as tar:

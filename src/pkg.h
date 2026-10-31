@@ -5,8 +5,9 @@
 #include "sys.h"
 #include "sha.h"
 
-#define PKG_VERSION	"0.2"
-#define FORMAT		1	/* of packages, records and indexes this pkg reads */
+#define PKG_VERSION	"0.3"
+#define FORMAT		2	/* of packages and records this pkg reads */
+#define INDEX_FORMAT	1	/* of package lists */
 
 /* under root */
 #define PKGDIR		"/usr/local/lib/pkg"
@@ -40,6 +41,7 @@ void unlock(void);
 
 /* A package's description: from +PKG, a record, or the index. */
 struct meta {
+	int format;
 	char *name, *version, *summary;
 	char *extra;	/* the other "key value" lines, as they were */
 };
@@ -76,7 +78,7 @@ char *owner(const char *path, int dirs);	/* the installed package that has path 
 /* install.c */
 int install_file(const char *file, const char *from, const char *server,
 	const char *expect_name);
-int remove_package(const char *name);
+int remove_package(const char *name);	/* refuses while a shell of its is in use */
 int verify_package(const char *name);
 int package_meta(const char *file, struct meta *m);
 

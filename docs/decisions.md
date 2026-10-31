@@ -75,8 +75,11 @@ in `/usr/local`.
 
 ### No install or remove scripts
 
-Packages are files only. A script could change any file, which would break the rule
-above. If a real package turns out to need setup, we revisit this.
+Packages are files, plus changes outside them that `pkg` itself makes and undoes: so
+far, adding a package's shells to `/etc/shells` ("Packages name their shells",
+2026-10-30). A script could change any file, which would break the rule above, and `pkg`
+couldn't check or undo what it did. A package that needs other setup gets another such
+change, not a script.
 
 ### Command line only
 
@@ -272,3 +275,26 @@ So `pkg upgrade` upgrades pkg, as `--pkg` intends by recording it as installed.
 record. Its version is `PKG_VERSION` exactly, with no `-1`: versions compare as Debian's
 do, so `0.2-1` would be newer than the `0.2` a disk from aux-3-patches has, and `pkg
 upgrade` would install the same pkg again. So a new pkg always has a new `PKG_VERSION`.
+
+## 2026-10-30: shells
+
+### Packages name their shells
+
+mksh was the first package to need setup: A/UX's `chsh` refuses a shell `/etc/shells`
+doesn't list, `ftpd` refuses users whose shell it doesn't list, and the Mac login window
+gives them only a console, not the Finder. So `+PKG` can say `shell /usr/local/bin/mksh`,
+as FreeBSD's `@shell` does, and `pkg` adds the line on install and takes it out on
+remove, keeping the file's owner and mode; `pkg verify` checks it's there. The shell must
+be a file in the package.
+
+Removing the package, or upgrading to a version that drops the shell, is refused while
+it's someone's login shell in `/etc/passwd`, since they'd be left with none. `chsh` puts
+theirs back first.
+
+### Format 2, for packages that need it
+
+`pkg` 0.2 would install a package with a `shell` line and ignore the line, so packages
+with one are format 2, which 0.2 refuses ("upgrade pkg"). Others stay format 1, so 0.2
+can still install them, and a record keeps its package's format, so an older `pkg` can
+still read the records of what it understands. The package list's format is separate and
+still 1.
