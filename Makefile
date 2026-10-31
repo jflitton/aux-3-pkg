@@ -74,10 +74,25 @@ build/aux-repo: test/make-repo.py tools/pkg-build.py tools/pkg-repo.py
 test-aux: $(AUX_PROGS) build/aux-repo
 	$(PYTHON) tools/aux-run.py test/aux-test.sh $(AUX_PROGS) build/aux-repo/*
 
+# pkg as a package for its server, build/packages/pkg-VERSION.pkg, with the record
+# aux-3-patches' --pkg gives it (docs/development.md, "Releasing pkg")
+package: build/aux/pkg tools/pkg-build.py
+	rm -rf build/package
+	mkdir -p build/package/usr/local/bin build/packages
+	cp build/aux/pkg build/package/usr/local/bin/pkg
+	chmod 755 build/package/usr/local/bin/pkg
+	{ echo 'format 1'; echo 'name pkg'; \
+	  sed -n 's/.*PKG_VERSION[^"]*"\(.*\)".*/version \1/p' src/pkg.h; \
+	  echo 'summary Installs, upgrades and removes packages'; \
+	  echo 'url https://github.com/jflitton/aux-3-pkg'; \
+	  git describe --tags --always --dirty 2>/dev/null | sed 's/^/built /'; \
+	} > build/package/+PKG
+	$(PYTHON) tools/pkg-build.py build/package build/packages
+
 clean:
 	rm -rf build
 
-.PHONY: all test test-aux clean
+.PHONY: all test test-aux package clean
 .SECONDARY:
 
 -include $(shell find build -name '*.d' 2>/dev/null)

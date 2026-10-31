@@ -4,8 +4,8 @@ The missing package manager for A/UX 3.1, Apple's Unix for 68k Macs. It can inst
 package files or via http. A/UX can't use HTTPS, so pkg checks every download against 
 a signed package list instead. Installed packages can be upgraded, checked and removed cleanly.
 
-**Status:** early. The default server has one package so far, gzip, from
-[aux-3-ports](https://github.com/jflitton/aux-3-ports). A/UX 3.0.1 should work
+**Status:** early. The default server has pkg itself and, so far, one other package,
+gzip, from [aux-3-ports](https://github.com/jflitton/aux-3-ports). A/UX 3.0.1 should work
 too (its system calls and structures are the same as far as pkg uses them) but hasn't
 been tried.
 

@@ -264,3 +264,11 @@ stays buildable from this repository alone, freestanding on `rt/`; ports change 
 than pkg and may come from other people; and ports carry patches to GPL programs, which
 this MIT repository shouldn't. Homebrew keeps its formulae out of `brew`, and FreeBSD its
 ports tree out of `pkg`, for the same reasons.
+
+### pkg is a package on its own server
+
+So `pkg upgrade` upgrades pkg, as `--pkg` intends by recording it as installed.
+`make package` makes it from the same build as aux-3-patches' `bin/pkg`, with the same
+record. Its version is `PKG_VERSION` exactly, with no `-1`: versions compare as Debian's
+do, so `0.2-1` would be newer than the `0.2` a disk from aux-3-patches has, and `pkg
+upgrade` would install the same pkg again. So a new pkg always has a new `PKG_VERSION`.

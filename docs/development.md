@@ -32,6 +32,7 @@ to put it elsewhere.
     make test         unit tests, then pkg end to end against a local server (seconds)
     make test-aux     the runtime's tests, the unit tests and pkg end to end, in A/UX
                       booted in QEMU (about 25 s)
+    make package      build/packages/pkg-VERSION.pkg, pkg as a package for its server
 
 pkg is built twice from the same source. For A/UX: m68k-elf-gcc (68020, no FPU) against
 `rt/`, linked by `rt/aux.ld` and written as COFF by `tools/elf2aout.py`; no Apple code is
@@ -46,6 +47,16 @@ runs. QEMU's Quadra 800 has an Ethernet chip (SONIC) A/UX 3.1 has no driver for,
 network tests use `test/httpd`, an HTTP server (and DNS server answering everything with
 127.0.0.1) on A/UX's loopback interface. pkg uses the same socket calls there as on a real
 network. If a run doesn't finish, `build/run/screen.png` shows the screen.
+
+## Releasing pkg
+
+A new pkg gets a new `PKG_VERSION` in `src/pkg.h`. Commit it, then `make package` makes
+`build/packages/pkg-VERSION.pkg`, whose record names the commit (`git describe`, with
+`-dirty` if anything isn't committed). Publish it to the default server as any package
+([publishing.md](publishing.md)): the list names every package on the server, so fetch
+the others (aux-3-ports' gzip...) from it into the site's `packages/` first. Then bring
+aux-3-patches' `--pkg` up to date with its `patches/pkg/update.sh`, which gives a new
+disk the same record.
 
 ## How A/UX runs pkg
 
