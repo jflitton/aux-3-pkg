@@ -525,6 +525,168 @@ check_shells(struct inst *s)
 	}
 }
 
+/*
+ * Boot commands: a package's "boot COMMAND" lines are run at every boot, each by a line
+ * pkg adds to /etc/inittab after the one that runs /etc/rc, so before the network
+ * daemons and the login window:
+ *
+ *	pk00:2:wait:COMMAND </dev/syscon >/dev/syscon 2>&1	# pkg NAME
+ *
+ * init waits for it. Removing the package takes its lines out, and an upgrade changes them
+ * to the new version's. A line is found again by what follows its third colon, so one
+ * the user has turned off (action "off") is still the package's.
+ */
+
+/* m's boot commands, NULL-terminated */
+static char **
+boots(struct meta *m)
+{
+	char **v = xmalloc(sizeof(char *));
+	const char *s = m->extra, *e;
+	int n = 0;
+
+	while (s && (e = strchr(s, '\n'))) {
+		if (!strncmp(s, "boot ", 5)) {
+			v = xrealloc(v, (n + 2) * sizeof(char *));
+			v[n] = xmalloc(e - s - 4);
+			memcpy(v[n], s + 5, e - s - 5);
+			v[n++][e - s - 5] = 0;
+		}
+		s = e + 1;
+	}
+	v[n] = NULL;
+	return v;
+}
+
+/* what follows an inittab line's third colon, or NULL */
+static const char *
+initproc(const char *line)
+{
+	int i;
+
+	for (i = 0; i < 3; i++)
+		if (!(line = strchr(line, ':')))
+			return NULL;
+		else
+			line++;
+	return line;
+}
+
+/* Whether name's boot command cmd is in /etc/inittab (-1 if that can't be read), having
+   added it (add > 0) or taken it out (add < 0) if need be. The file keeps its owner and
+   mode. */
+static int
+etcinittab(const char *name, const char *cmd, int add)
+{
+	char *path = rootpath("/etc/inittab"), *text, *out, *p, *line, *proc, *mine;
+	char **lines = NULL;
+	size_t len, n = 0, l;
+	struct stat st;
+	int nl = 0, at = -1, was = 0, i, id;
+
+	if (stat(path, &st) < 0 || !(text = readfile(path, &len, 1 << 20))) {
+		if (add > 0)
+			warn("can't add %s to /etc/inittab: %s", cmd, strerror(errno));
+		else if (add < 0)
+			warn("can't take %s out of /etc/inittab: %s", cmd, strerror(errno));
+		free(path);
+		return -1;
+	}
+	mine = xsprintf("%s </dev/syscon >/dev/syscon 2>&1\t# pkg %s", cmd, name);
+	p = text;
+	while ((line = nextline(&p))) {
+		lines = xrealloc(lines, (nl + 1) * sizeof(char *));
+		lines[nl++] = line;
+		proc = (char *)initproc(line);
+		if (proc && !strcmp(proc, mine))
+			was = 1;
+		/* new lines go after /etc/rc's and any of pkg's that follow it */
+		if (proc && (!strncmp(proc, "/etc/rc ", 8) || !strcmp(proc, "/etc/rc")))
+			at = nl;
+		else if (at == nl - 1 && !strncmp(line, "pk", 2) && proc && strstr(proc, "\t# pkg "))
+			at = nl;
+	}
+	if ((add > 0 && !was) || (add < 0 && was)) {
+		char ids[100] = {0};
+
+		for (i = 0; i < nl; i++)
+			if (lines[i][0] == 'p' && lines[i][1] == 'k' && lines[i][2] >= '0' &&
+			    lines[i][2] <= '9' && lines[i][3] >= '0' && lines[i][3] <= '9' &&
+			    lines[i][4] == ':')
+				ids[(lines[i][2] - '0') * 10 + lines[i][3] - '0'] = 1;
+		for (id = 0; id < 100 && ids[id]; id++)
+			;
+		if (add > 0 && id == 100) {
+			warn("can't add %s to /etc/inittab: no pkNN id left", cmd);
+			goto done;
+		}
+		if (at < 0)
+			at = nl;
+		out = xmalloc(len + strlen(mine) + 32);
+		for (i = 0; i <= nl; i++) {
+			if (add > 0 && i == at)
+				n += snprintf(out + n, len + strlen(mine) + 32 - n, "pk%02d:2:wait:%s\n",
+					id, mine);
+			if (i == nl)
+				break;
+			if (add < 0 && (proc = (char *)initproc(lines[i])) && !strcmp(proc, mine))
+				continue;
+			l = strlen(lines[i]);
+			memcpy(out + n, lines[i], l);
+			out[n + l] = '\n';
+			n += l + 1;
+		}
+		if (writefile(path, out, n) < 0)
+			warn("can't change /etc/inittab: %s", strerror(errno));
+		else {
+			chown(path, st.st_uid, st.st_gid);
+			chmod(path, st.st_mode & 07777);
+			say(add > 0 ? "Added %s to /etc/inittab, to run at every boot\n" :
+				"Took %s out of /etc/inittab\n", cmd);
+		}
+		free(out);
+	}
+done:
+	free(lines);
+	free(mine);
+	free(text);
+	free(path);
+	return was;
+}
+
+/* old's boot commands that keep (if any) doesn't have too out of /etc/inittab */
+static void
+drop_boots(struct meta *old, struct meta *keep)
+{
+	char **b = boots(old), **k = keep ? boots(keep) : NULL;
+	int i;
+
+	for (i = 0; b[i]; i++)
+		if (!listed(k, b[i]))
+			etcinittab(old->name, b[i], -1);
+	freev(b);
+	freev(k);
+}
+
+/* Before anything is put in place: each boot command's program is a file in the package */
+static void
+check_boots(struct inst *s)
+{
+	char **b = boots(&s->new.m), *prog;
+	struct entry *e;
+	int i;
+
+	for (i = 0; b[i]; i++) {
+		prog = xstrdup(b[i]);
+		if (strchr(prog, ' '))
+			*strchr(prog, ' ') = 0;
+		if (!(e = findentry(&s->new, prog + 1)) || e->type == 'd')
+			fail(s, "its boot command's program %s isn't a file in it", prog);
+		free(prog);
+	}
+	freev(b);
+}
+
 int
 install_file(const char *file, const char *from, const char *server, const char *expect)
 {
@@ -558,8 +720,10 @@ install_file(const char *file, const char *from, const char *server, const char 
 		fail(s, "it's empty: not a package");
 	if (r == -1 && !s->err[0])
 		fail(s, "%s", t.err ? t.err : gzerr ? gzerr : "unreadable");
-	if (r == 0 && !s->err[0] && !s->same)
+	if (r == 0 && !s->err[0] && !s->same) {
 		check_shells(s);
+		check_boots(s);
+	}
 
 	ok = !s->err[0] && (r == 0 || s->same);
 	if (!ok || s->same) {
@@ -597,13 +761,18 @@ install_file(const char *file, const char *from, const char *server, const char 
 		} else if (ok)
 			say("Installed %s %s\n", s->new.m.name, s->new.m.version);
 		if (ok) {
-			char **sh = shells(&s->new.m);
+			char **sh = shells(&s->new.m), **b = boots(&s->new.m);
 
-			if (s->have_old)
+			if (s->have_old) {
 				drop_shells(&s->old.m, &s->new.m);
+				drop_boots(&s->old.m, &s->new.m);
+			}
 			for (i = 0; sh[i]; i++)
 				etcshells(sh[i], 1);
+			for (i = 0; b[i]; i++)
+				etcinittab(s->new.m.name, b[i], 1);
 			freev(sh);
+			freev(b);
 		}
 	}
 	for (i = 0; i < s->npend; i++) {
@@ -738,6 +907,7 @@ remove_package(const char *name)
 		free(path);
 		say("Removed %s %s\n", r.m.name, r.m.version);
 		drop_shells(&r.m, NULL);
+		drop_boots(&r.m, NULL);
 	} else
 		warn("%s is only partly removed; its record is kept", name);
 	freerecord(&r);
@@ -787,6 +957,13 @@ verify_package(const char *name)
 	for (i = 0; sh[i]; i++)
 		if (etcshells(sh[i], 0) != 1) {
 			say("%s: %s: not in /etc/shells\n", name, sh[i]);
+			bad++;
+		}
+	freev(sh);
+	sh = boots(&r.m);
+	for (i = 0; sh[i]; i++)
+		if (etcinittab(name, sh[i], 0) != 1) {
+			say("%s: %s: not in /etc/inittab\n", name, sh[i]);
 			bad++;
 		}
 	freev(sh);

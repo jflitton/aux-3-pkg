@@ -22,6 +22,9 @@ metaline(struct meta *m, char *line, const char **err)
 	} else if (!strcmp(line, "shell") && (*v != '/' || validpath(v + 1))) {
 		*err = "a shell line isn't a path from /";
 		return -1;
+	} else if (!strcmp(line, "boot") && !validboot(v)) {
+		*err = "a boot line isn't a command from / (letters, digits, spaces and / . _ , = + -)";
+		return -1;
 	} else if (!strcmp(line, "name")) {
 		free(m->name);
 		m->name = xstrdup(v);

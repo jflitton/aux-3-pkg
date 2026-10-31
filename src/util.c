@@ -289,6 +289,30 @@ validpath(const char *s)
 	return NULL;
 }
 
+/* A program in the package as a path from /, then any arguments, one space apart. Only
+   characters that mean nothing to /etc/inittab or the shell init runs it with. */
+int
+validboot(const char *s)
+{
+	const char *p;
+	char *prog;
+	int ok;
+
+	if (*s != '/' || strlen(s) > 200)
+		return 0;
+	for (p = s; *p; p++)
+		if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+		    (*p >= '0' && *p <= '9') || strchr(" /._,=+-", *p)) ||
+		    (*p == ' ' && (p[1] == ' ' || !p[1])))
+			return 0;
+	prog = xstrdup(s + 1);
+	if ((p = strchr(prog, ' ')))
+		prog[p - prog] = 0;
+	ok = !validpath(prog);
+	free(prog);
+	return ok;
+}
+
 /* Debian's ordering: for each character, ~ first, then the end, then letters, then
    everything else */
 static int

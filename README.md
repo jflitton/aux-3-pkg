@@ -74,7 +74,8 @@ on the way.
 - **Overwrite a file a package didn't install**, or another package's file. If anything
   in a package is in the way, pkg installs none of it and says what's in the way.
 - **Run scripts** from packages: a package is files, plus the few changes pkg itself
-  makes and undoes, such as adding a shell to `/etc/shells`.
+  makes and undoes: adding a shell to `/etc/shells`, and a command to run at boot to
+  `/etc/inittab`.
 - **Dependencies**: each package has what it needs.
 
 [docs/decisions.md](docs/decisions.md) says why.
@@ -90,6 +91,8 @@ Lay the files out under a directory as they'll be installed, add a `+PKG` there:
 
 and run `tools/pkg-build.py DIR`. A package whose program is a login shell says so with
 a line `shell /usr/local/bin/NAME` (and `format 2`), and pkg adds it to `/etc/shells`.
+One with a command to run at every boot says `boot /usr/local/bin/NAME ARGS` (and
+`format 3`), and pkg adds a line for it to `/etc/inittab`.
 To run a server of your own, see
 [docs/publishing.md](docs/publishing.md); the formats are in
 [docs/formats.md](docs/formats.md).

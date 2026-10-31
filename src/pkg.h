@@ -5,8 +5,8 @@
 #include "sys.h"
 #include "sha.h"
 
-#define PKG_VERSION	"0.4"
-#define FORMAT		2	/* of packages and records this pkg reads */
+#define PKG_VERSION	"0.5"
+#define FORMAT		3	/* of packages and records this pkg reads */
 #define INDEX_FORMAT	1	/* of package lists */
 
 /* under root */
@@ -37,6 +37,7 @@ int mkdirs(const char *path, mode_t mode, void (*made)(const char *path, void *a
 int validname(const char *s);
 int validversion(const char *s);
 const char *validpath(const char *s);	/* NULL, or why it isn't */
+int validboot(const char *s);		/* a boot line's command (docs/formats.md) */
 int vercmp(const char *a, const char *b);
 int hashfile(const char *path, char out[65]);
 int lock(void);

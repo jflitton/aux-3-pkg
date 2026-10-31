@@ -77,7 +77,8 @@ in `/usr/local`.
 
 Packages are files, plus changes outside them that `pkg` itself makes and undoes: so
 far, adding a package's shells to `/etc/shells` ("Packages name their shells",
-2026-10-30). A script could change any file, which would break the rule above, and `pkg`
+2026-10-30) and its boot commands to `/etc/inittab` ("Packages name their boot commands",
+2026-10-31). A script could change any file, which would break the rule above, and `pkg`
 couldn't check or undo what it did. A package that needs other setup gets another such
 change, not a script.
 
@@ -315,3 +316,32 @@ upgraded. From pkg 0.4: older ones still go in alphabetical order.
 Rejected: upgrading pkg first and carrying on in the old pkg, which can't install what
 needs the new one; and running the new pkg as a child, which needs `fork` and `wait` in
 `rt/` and the lock handed to another process, to gain only the old pkg's exit status.
+
+## 2026-10-31: boot commands
+
+### Packages name their boot commands
+
+The network setup package (aux-3-ports' netsetup) has to get an address by DHCP at every
+boot, and A/UX starts nothing at boot that a package could add a file for: `/etc/startup`
+is rebuilt from the kernel's modules each time, and the rest is `/etc/inittab`. So
+`+PKG` can say `boot /usr/local/bin/netsetup boot`, and `pkg` adds a line to
+`/etc/inittab` on install and takes it out on remove, as it does with `/etc/shells`;
+`pkg verify` checks it's there. A boot line's program must be a file in the package, and
+its arguments are plain words, as nothing in the line may mean something to inittab
+(`:`) or to the shell init runs it with.
+
+The line goes after the one running `/etc/rc`, with any of pkg's already there: after
+the disks are mounted and `/tmp` cleaned, and before the network daemons, the end of the
+progress bar and the login window, so what it sets up is there for them. Its action is
+`wait`, so init waits for it: a boot command must finish quickly, or put itself in the
+background. A line is found again by its command and the `# pkg NAME` after it, not its
+id, so one the user has edited or turned off is still the package's to take out.
+
+Considered: install and remove scripts, as Debian's and FreeBSD's packages have, which
+would cover whatever later packages need. Rejected for now, as before ("No install or
+remove scripts"): pkg couldn't check or undo what a script did.
+
+### Format 3
+
+As with format 2, `pkg` 0.4 would install a package with a `boot` line and ignore it, so
+such packages are format 3, which needs pkg 0.5.

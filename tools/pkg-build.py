@@ -16,6 +16,7 @@ import gzip, io, os, re, stat, sys, tarfile
 
 NAME = re.compile(r'[a-z0-9][a-z0-9+._-]{0,63}$')
 VERSION = re.compile(r'[A-Za-z0-9+._~-]{1,64}$')
+BOOT = re.compile(r'/[A-Za-z0-9/._,=+-]+( [A-Za-z0-9/._,=+-]+)*$')
 PKGDIR = 'usr/local/lib/pkg'
 
 
@@ -24,8 +25,8 @@ def die(msg):
 
 
 def read_meta(path):
-    """+PKG's keys and values; shell, which can be given more than once, as a list"""
-    meta = {'shell': []}
+    """+PKG's keys and values; shell and boot, which can be given more than once, as lists"""
+    meta = {'shell': [], 'boot': []}
     with open(path, encoding='ascii') as f:
         for n, line in enumerate(f, 1):
             line = line.rstrip('\n')
@@ -34,7 +35,7 @@ def read_meta(path):
             key, sep, value = line.partition(' ')
             if not sep:
                 die('%s line %d has no value' % (path, n))
-            if key == 'shell':
+            if key in ('shell', 'boot'):
                 meta[key].append(value)
             else:
                 meta[key] = value
@@ -44,10 +45,12 @@ def read_meta(path):
     for key in ('installed', 'from', 'server'):
         if key in meta:
             die('%s: %s is pkg\'s own key, for its records' % (path, key))
-    if meta['format'] not in ('1', '2'):
-        die('%s: this pkg-build makes formats 1 and 2' % path)
+    if meta['format'] not in ('1', '2', '3'):
+        die('%s: this pkg-build makes formats 1 to 3' % path)
     if meta['shell'] and meta['format'] == '1':
         die('%s: shell lines need format 2 (pkg 0.3 or later)' % path)
+    if meta['boot'] and meta['format'] != '3':
+        die('%s: boot lines need format 3 (pkg 0.5 or later)' % path)
     if not NAME.match(meta['name']) or meta['name'].endswith('.pkg'):
         die('%s: name %r isn\'t allowed (docs/formats.md)' % (path, meta['name']))
     if not VERSION.match(meta['version']):
@@ -93,6 +96,14 @@ def build(top, outdir):
         if not shell.startswith('/') or set(shell[1:].split('/')) & {'', '.', '..'} or \
                 not (os.path.islink(full) or os.path.isfile(full)):
             die('shell %s: should be a path from /, of a file in the package' % shell)
+    for boot in meta['boot']:
+        prog = boot.split(' ')[0]
+        full = os.path.join(top, prog[1:])
+        if not BOOT.match(boot) or len(boot) > 200 or \
+                set(prog[1:].split('/')) & {'', '.', '..'} or \
+                not (os.path.islink(full) or os.path.isfile(full)):
+            die('boot %s: should be a program in the package, as a path from /, then any '
+                'arguments: letters, digits, single spaces and / . _ , = + -' % boot)
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode='w', format=tarfile.USTAR_FORMAT,
                       encoding='mac_roman') as tar:

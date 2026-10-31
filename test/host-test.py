@@ -183,12 +183,17 @@ def main():
     raw_package(os.path.join(bad, 'nopkg.pkg'), [('usr/x', b'x')])
     raw_package(os.path.join(bad, 'dotdot.pkg'), [('+PKG', meta), ('../etc/x', b'x')])
     raw_package(os.path.join(bad, 'future.pkg'), [('+PKG', meta.replace(b'format 1',
-                                                                            b'format 3'))])
+                                                                            b'format 4'))])
     meta2 = meta.replace(b'format 1', b'format 2')
     raw_package(os.path.join(bad, 'noshell.pkg'), [('+PKG', meta2 + b'shell /usr/x\n'),
                                                    ('usr/y', b'1')])
     raw_package(os.path.join(bad, 'relshell.pkg'), [('+PKG', meta2 + b'shell usr/y\n'),
                                                     ('usr/y', b'1')])
+    meta3 = meta.replace(b'format 1', b'format 3')
+    raw_package(os.path.join(bad, 'noboot.pkg'), [('+PKG', meta3 + b'boot /usr/x go\n'),
+                                                  ('usr/y', b'1')])
+    raw_package(os.path.join(bad, 'badboot.pkg'), [('+PKG', meta3 + b'boot /usr/y a:b\n'),
+                                                   ('usr/y', b'1')])
     raw_package(os.path.join(bad, 'own.pkg'), [('+PKG', meta),
                                                ('usr/local/lib/pkg/installed/x', b'x')])
     raw_package(os.path.join(bad, 'twice.pkg'), [('+PKG', meta), ('usr/y', b'1'),
@@ -329,6 +334,8 @@ def main():
                          ('pkgkey', "pkg's own"),
                          ('noshell', "shell /usr/x isn't a file in it"),
                          ('relshell', "isn't a path from /"),
+                         ('noboot', "program /usr/x isn't a file in it"),
+                         ('badboot', "isn't a command from /"),
                          ('text', 'not a gzip file')):
         before = files_under(ROOT)
         code, out = pkg('install', os.path.join(bad, name + '.pkg'))
@@ -404,6 +411,82 @@ def main():
           'no /etc/shells: installs, and says so', out)
     pkg('remove', 'ksh2')
     os.remove(passwd)
+
+    # boot commands
+    for what, fmt, files, boot, expect in (
+            ('format 2', 2, {'usr/local/bin/netd': b'x'}, '/usr/local/bin/netd',
+             'need format 3'),
+            ('not in the package', 3, {'usr/local/bin/other': b'x'}, '/usr/local/bin/netd',
+             'a program in the package'),
+            ('a colon', 3, {'usr/local/bin/netd': b'x'}, '/usr/local/bin/netd a:b',
+             'a program in the package')):
+        try:
+            build('netd', '0', files, repo=local, format=fmt, extra=[('boot', boot)])
+            out = 'built'
+        except subprocess.CalledProcessError as e:
+            out = e.stderr
+        check(expect in out, 'pkg-build refuses a boot line: %s' % what, out)
+        shutil.rmtree(os.path.join(WORK, 'src', 'local', 'netd-0'))
+    inittab = os.path.join(ROOT, 'etc', 'inittab')
+    rc = 'rc::wait:/etc/rc 1>/dev/syscon 2>&1\t#System initialization - runcom\n'
+    head = 'is:2:initdefault:\n' + rc
+    tail = 'net9:2:off:/etc/inetd\nco::respawn:/etc/loginrc'    # no newline at the end
+    with open(inittab, 'w') as f:
+        f.write(head + tail)
+    os.chmod(inittab, 0o640)
+
+    def bootline(n, cmd, name, action='wait'):
+        return 'pk%02d:2:%s:%s </dev/syscon >/dev/syscon 2>&1\t# pkg %s\n' % (n, action, cmd,
+                                                                             name)
+
+    netd1 = build('netd', '1', {'usr/local/bin/netd': (b'x', 0o755)}, repo=local, format=3,
+                  extra=[('boot', '/usr/local/bin/netd boot')])
+    code, out = pkg('install', netd1)
+    check(code == 0 and 'Added /usr/local/bin/netd boot to /etc/inittab' in out,
+          'install adds its boot command to /etc/inittab', out)
+    netd_line = bootline(0, '/usr/local/bin/netd boot', 'netd')
+    check(open(inittab).read() == head + netd_line + tail + '\n' and
+          os.stat(inittab).st_mode & 0o777 == 0o640,
+          "...after /etc/rc's line, keeping the file's lines and mode", open(inittab).read())
+    check(open(os.path.join(ROOT, 'usr/local/lib/pkg/installed/netd')).read().startswith(
+        'format 3\n'), "...and the record has the package's format")
+    code, out = pkg('verify', 'netd')
+    check(code == 0, 'verify', out)
+    timed = build('timed', '1', {'usr/local/bin/timed': (b'x', 0o755)}, repo=local, format=3,
+                  extra=[('boot', '/usr/local/bin/timed')])
+    code, out = pkg('install', timed)
+    timed_line = bootline(1, '/usr/local/bin/timed', 'timed')
+    check(code == 0 and open(inittab).read() == head + netd_line + timed_line + tail + '\n',
+          "a second package's line goes after the first, with the next id",
+          open(inittab).read())
+    with open(inittab, 'w') as f:
+        f.write(head + timed_line + tail + '\n')
+    code, out = pkg('verify', 'netd')
+    check(code == 1 and 'netd: /usr/local/bin/netd boot: not in /etc/inittab' in out,
+          'verify finds the boot command missing from /etc/inittab', out)
+    with open(inittab, 'w') as f:
+        f.write(head + bootline(0, '/usr/local/bin/netd boot', 'netd', 'off') + timed_line +
+                tail + '\n')
+    code, out = pkg('verify', 'netd')
+    check(code == 0, "a line turned off is still the package's", out)
+    netd2 = build('netd', '2', {'usr/local/bin/netd': (b'y', 0o755)}, repo=local, format=3,
+                  extra=[('boot', '/usr/local/bin/netd start')])
+    code, out = pkg('install', netd2)
+    check(code == 0 and 'Took /usr/local/bin/netd boot out of /etc/inittab' in out and
+          'Added /usr/local/bin/netd start' in out and open(inittab).read() == head +
+          timed_line + bootline(0, '/usr/local/bin/netd start', 'netd') + tail + '\n',
+          'an upgrade changes its boot commands, reusing the free id', out + open(inittab).read())
+    code, out = pkg('remove', 'netd')
+    check(code == 0 and 'Took /usr/local/bin/netd start out of /etc/inittab' in out,
+          'remove takes its boot command out', out)
+    pkg('remove', 'timed')
+    check(open(inittab).read() == head + tail + '\n', '...leaving the rest as it was',
+          open(inittab).read())
+    os.remove(inittab)
+    code, out = pkg('install', netd1)
+    check(code == 0 and "can't add /usr/local/bin/netd boot to /etc/inittab" in out,
+          'no /etc/inittab: installs, and says so', out)
+    pkg('remove', 'netd')
 
     # the network misbehaving
     pkg('-s', base + '/damaged/', 'update')

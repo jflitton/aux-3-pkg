@@ -34,7 +34,22 @@ value` lines (the key, one space, the rest of the line):
 path from `/` (`shell /usr/local/bin/mksh`). Installing the package adds it to
 `/etc/shells`; removing the package takes it out, and is refused while it's someone's
 login shell in `/etc/passwd`. A package with a `shell` line is format 2, which needs pkg
-0.3 or later; others are format 1. Every other member is the
+0.3 or later.
+
+`boot COMMAND`, which may be given more than once, is run at every boot: a program in the
+package as a path from `/`, then any arguments, one space apart, in letters, digits and
+`/ . _ , = + -` (`boot /usr/local/bin/netsetup boot`). Installing the package adds a line
+for it to `/etc/inittab`, after the one that runs `/etc/rc`:
+
+    pk00:2:wait:/usr/local/bin/netsetup boot </dev/syscon >/dev/syscon 2>&1	# pkg netsetup
+
+with the first `pkNN` id that's free, and the tab and comment naming the package.
+Removing the package takes the line out, found by what follows its third colon, so the
+id, run levels and action can be changed (`off` stops it running). A package with a
+`boot` line is format 3, which needs pkg 0.5 or later; packages with neither line are
+format 1.
+
+Every other member is the
 package's content: regular files, directories and symbolic links, with their modes,
 owners and modification times. Other member types, and other names starting with `+`,
 make the package invalid. A Mac file's resource fork and Finder information are its

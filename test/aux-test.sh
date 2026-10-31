@@ -134,6 +134,19 @@ chsh Guest /bin/csh > /dev/null
 t 'remove' 'Took /usr/local/bin/shelly out of /etc/shells' pkg remove shelly
 e "...and it's gone" 1 '^0$' grep -c shelly /etc/shells
 
+# boot commands: a line in /etc/inittab, after /etc/rc's
+perms() { ls -l /etc/inittab | awk '{ print substr($1, 2), $3, $4 }'; }
+before=`perms`
+t 'a package with a boot command' 'Added /usr/local/bin/booty up to /etc/inittab' \
+	pkg install /usr/local/bin/booty-1.0.pkg
+t "...keeping /etc/inittab's owner and mode" "$before" perms
+t "...on the line after /etc/rc's" \
+	'^pk00:2:wait:/usr/local/bin/booty up </dev/syscon >/dev/syscon 2>&1	# pkg booty$' \
+	awk 'p { print; p = 0 } /:\/etc\/rc / { p = 1 }' /etc/inittab
+t 'verify' '^verified$' sh -c 'pkg verify booty && echo verified'
+t 'remove' 'Took /usr/local/bin/booty up out of /etc/inittab' pkg remove booty
+e "...and it's gone" 1 '^0$' grep -c booty /etc/inittab
+
 # pkg upgrades itself first, then runs the new pkg for the rest. Its package's pkg is a
 # script that runs the one being tested; 2.0's says it's running first.
 mv /usr/local/bin/pkg /tmp/pkg.real

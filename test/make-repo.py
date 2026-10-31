@@ -8,8 +8,9 @@ r1.index, r1.index.sig    server 1 (main): hello 1.0, macapp 1.0
 r2.index, r2.index.sig    server 2, with a key of its own: hello 1.1, macapp 1.0
 r3.index, r3.index.sig    main's next list, signed as server 1's: hello 1.1, pkg 2.0,
                           macapp 1.0
-*.pkg                     the packages; shelly-1.0.pkg, whose program is a shell; and
-                          pkg-1.0.pkg, to install from the file
+*.pkg                     the packages; shelly-1.0.pkg, whose program is a shell;
+                          booty-1.0.pkg, with a boot command; and pkg-1.0.pkg, to
+                          install from the file
 pkg.conf                  trusting server 1's key for main, and naming server 2 "two"
 """
 import os, shutil, subprocess, sys, tempfile
@@ -32,7 +33,7 @@ def package(work, outdir, name, version, files, extra=''):
         os.chmod(full, mode)
     with open(os.path.join(top, '+PKG'), 'w') as f:
         f.write('format %d\nname %s\nversion %s\nsummary A test package\n%s' % (
-            2 if extra else 1, name, version, extra))
+            3 if 'boot ' in extra else 2 if extra else 1, name, version, extra))
     return tool(os.path.join(TOOLS, 'pkg-build.py'), top, outdir).strip()
 
 
@@ -65,6 +66,8 @@ def main():
         'mac/bin/%Fancy Term': (b'\0\5\26\7 not really AppleDouble', 0o644)})
     package(work, out, 'shelly', '1.0', {
         'usr/local/bin/shelly': (b'echo shelly here\n', 0o755)}, 'shell /usr/local/bin/shelly\n')
+    package(work, out, 'booty', '1.0', {
+        'usr/local/bin/booty': (b'echo booted\n', 0o755)}, 'boot /usr/local/bin/booty up\n')
     for name, pkgs in servers.items():
         d = os.path.join(work, name)
         os.makedirs(d)
