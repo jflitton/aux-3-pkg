@@ -19,7 +19,9 @@
 # signed, and works when run again. Nothing is deleted: a pkg that read an older list still
 # fetches what it names.
 #
-# Needs the AWS CLI, signed in as someone who may write the bucket.
+# Needs the AWS CLI, signed in as someone who may read, list and write the bucket (without
+# listing, S3 answers 403 for a file that isn't there, which this takes as an error, not as
+# a new package).
 
 set -e
 LONG="public, max-age=31536000, immutable"
@@ -44,11 +46,16 @@ done
 
 NEW=
 for p in $PATHS; do
-    if aws s3api head-object --bucket "$BUCKET" --key "$PREFIX$p" >/dev/null 2>&1; then
+    if err=$(aws s3api head-object --bucket "$BUCKET" --key "$PREFIX$p" 2>&1 >/dev/null); then
         aws s3 cp "s3://$BUCKET/$PREFIX$p" - --only-show-errors | cmp -s - "$SITE/$p" ||
             die "$PREFIX$p is in the bucket already, and different: a new build needs a new version"
     else
-        NEW="$NEW $p"
+        # only a 404 means it isn't there: an expired sign-in or a failed connection says
+        # nothing about what's in the bucket, so it mustn't make a package look new
+        case $err in
+            *"(404)"*) NEW="$NEW $p" ;;
+            *) die "can't tell whether $PREFIX$p is in the bucket: $(echo $err)" ;;
+        esac
     fi
 done
 for p in $NEW; do

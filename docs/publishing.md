@@ -41,7 +41,8 @@ For a server whose files are in an S3 bucket, `tools/publish.sh site s3://BUCKET
 http://SERVER/` does step 3. It uploads the new packages, checks each comes back from
 the server as sent, then uploads `index.sig` and `index`, with the caching below. It
 refuses to replace a package that's up already with a different file: a new build needs
-a new version. To try a list out first, publish it to a directory of its own
+a new version. If it can't tell whether a package is up already (the AWS CLI's sign-in
+has expired, say), it stops before uploading anything. To try a list out first, publish it to a directory of its own
 (`s3://BUCKET/test http://SERVER/test/`) and `pkg update -s http://SERVER/test/`.
 
 ## What a server needs
