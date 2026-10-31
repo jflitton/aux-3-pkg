@@ -50,13 +50,14 @@ network. If a run doesn't finish, `build/run/screen.png` shows the screen.
 
 ## Releasing pkg
 
-A new pkg gets a new `PKG_VERSION` in `src/pkg.h`. Commit it, then `make package` makes
-`build/packages/pkg-VERSION.pkg`, whose record names the commit (`git describe`, with
-`-dirty` if anything isn't committed). Publish it to the default server as any package
-([publishing.md](publishing.md)): the list names every package on the server, so fetch
-the others (aux-3-ports' gzip...) from it into the site's `packages/` first. Then bring
-aux-3-patches' `--pkg` up to date with its `patches/pkg/update.sh`, which gives a new
-disk the same record.
+A new pkg gets a new `PKG_VERSION` in `src/pkg.h`. Commit it, tag the commit `vVERSION`
+(`git tag -a v0.2 -m "pkg 0.2"`) and push the tag. Then `make package` makes
+`build/packages/pkg-VERSION.pkg`, whose record names the tag (`git describe`, which
+shows a commit after it, or `-dirty` if anything isn't committed). Publish it to the
+default server as any package ([publishing.md](publishing.md)): the list names every
+package on the server, so fetch the others (aux-3-ports' gzip...) from it into the
+site's `packages/` first. Then bring aux-3-patches' `--pkg` up to date with its
+`patches/pkg/update.sh`, which gives a new disk the same record.
 
 ## How A/UX runs pkg
 
