@@ -1,5 +1,10 @@
 # pkg for A/UX 3
 
+> **This repository has moved** to [jflitton/aux-3](https://github.com/jflitton/aux-3), in
+> [`pkg/`](https://github.com/jflitton/aux-3/tree/main/pkg), with its whole history (its tags
+> `vVERSION` are `pkg-vVERSION` there). This one is archived and no longer updated; pkgs
+> already installed, and packages already published, still link here.
+
 The missing package manager for A/UX 3.1, Apple's Unix for 68k Macs. It can install software from
 package files or via http. A/UX can't use HTTPS, so pkg checks every download against 
 a signed package list instead. Installed packages can be upgraded, checked and removed cleanly.
