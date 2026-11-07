@@ -1,7 +1,7 @@
 # pkg for A/UX 3
 
-> **This repository has moved** to [jflitton/aux-3](https://github.com/jflitton/aux-3), in
-> [`pkg/`](https://github.com/jflitton/aux-3/tree/main/pkg), with its whole history (its tags
+> **This repository has moved** to [jflitton/aux-3-forge](https://github.com/jflitton/aux-3-forge), in
+> [`pkg/`](https://github.com/jflitton/aux-3-forge/tree/main/pkg), with its whole history (its tags
 > `vVERSION` are `pkg-vVERSION` there). This one is archived and no longer updated; pkgs
 > already installed, and packages already published, still link here.
 
